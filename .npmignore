@@ -1,0 +1,32 @@
+# Source code (we only publish the binary)
+cmd/
+internal/
+pkg/
+*.go
+go.mod
+go.sum
+Makefile
+
+# Build artifacts not needed
+*.test
+*.out
+
+# Documentation (keep README.md)
+AUTHENTICATION.md
+PROJECT_SUMMARY.md
+QUICKSTART.md
+RELEASE_NOTES_V2.md
+SETUP.md
+UI_IMPROVEMENTS.md
+demo_ui.sh
+
+# Config examples
+*.example
+dcode.yaml.example
+
+# Python files
+*.py
+
+# Git
+.git
+.gitignore

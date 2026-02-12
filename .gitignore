@@ -1,0 +1,42 @@
+# Binaries (except the one for npm distribution)
+# dcode - commented out to allow npm publishing
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config files with secrets
+dcode.yaml
+.dcode/dcode.yaml
+
+# Logs
+*.log
+
+# Build artifacts
+# bin/ - commented out to allow npm bin wrapper
+dist/
+build/

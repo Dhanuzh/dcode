@@ -1,0 +1,31 @@
+# DCode Configuration File
+# Place this file at ~/.config/dcode/dcode.yaml for global config
+# Or in your project root as dcode.yaml or .dcode/dcode.yaml for project-specific config
+
+# Default AI provider to use
+# Options: anthropic, openai
+provider: anthropic
+
+# Specific model to use (optional)
+# Anthropic models: claude-sonnet-4.5, claude-3-opus, claude-3-sonnet, claude-3-haiku
+# OpenAI models: gpt-4-turbo, gpt-4, gpt-3.5-turbo
+model: claude-sonnet-4.5
+
+# Maximum tokens for AI responses
+max_tokens: 8192
+
+# Temperature for response generation (0.0 = deterministic, 1.0 = creative)
+temperature: 0.0
+
+# API Keys (optional - can also be set via environment variables)
+# Prefer using environment variables for security:
+#   export ANTHROPIC_API_KEY=your_key
+#   export OPENAI_API_KEY=your_key
+# anthropic_api_key: your_anthropic_key_here
+# openai_api_key: your_openai_key_here
+
+# Enable streaming responses (currently uses non-streaming internally)
+streaming: true
+
+# Enable verbose logging
+verbose: false
