@@ -64,23 +64,120 @@ func (p *OpenAICompatibleProvider) CreateMessage(ctx context.Context, req *Messa
 }
 
 func (p *OpenAICompatibleProvider) StreamMessage(ctx context.Context, req *MessageRequest, callback func(*StreamChunk) error) error {
-	// Fallback to non-streaming
-	resp, err := p.CreateMessage(ctx, req)
-	if err != nil {
-		return err
+	messages := convertToOpenAIMessages(req)
+
+	chatReq := openai.ChatCompletionRequest{
+		Model:    req.Model,
+		Messages: messages,
+		Stream:   true,
 	}
 
-	callback(&StreamChunk{Type: "message_start", Message: resp})
+	if req.MaxTokens > 0 {
+		chatReq.MaxTokens = req.MaxTokens
+	}
+	if req.Temperature != 0 {
+		chatReq.Temperature = float32(req.Temperature)
+	}
+	if len(req.Tools) > 0 {
+		chatReq.Tools = convertToOpenAITools(req.Tools)
+	}
 
-	for i, block := range resp.Content {
-		callback(&StreamChunk{Type: "content_block_start", Index: i, ContentBlock: &block})
-		if block.Type == "text" {
-			callback(&StreamChunk{
-				Type: "content_block_delta", Index: i,
-				Delta: &Delta{Type: "text_delta", Text: block.Text},
-			})
+	stream, err := p.client.CreateChatCompletionStream(ctx, chatReq)
+	if err != nil {
+		return fmt.Errorf("%s stream error: %w", p.name, err)
+	}
+	defer stream.Close()
+
+	var currentToolCall *openai.ToolCall
+	var toolCallArgs string
+
+	for {
+		response, err := stream.Recv()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return fmt.Errorf("stream receive error: %w", err)
 		}
-		callback(&StreamChunk{Type: "content_block_stop", Index: i})
+
+		if len(response.Choices) == 0 {
+			continue
+		}
+
+		delta := response.Choices[0].Delta
+
+		// Handle text delta
+		if delta.Content != "" {
+			chunk := &StreamChunk{
+				Type:  "content_block_delta",
+				Index: 0,
+				Delta: &Delta{
+					Type: "text_delta",
+					Text: delta.Content,
+				},
+			}
+			if err := callback(chunk); err != nil {
+				return err
+			}
+		}
+
+		// Handle tool calls
+		if len(delta.ToolCalls) > 0 {
+			for _, tc := range delta.ToolCalls {
+				if tc.ID != "" {
+					if currentToolCall != nil {
+						// Finish previous tool call
+						input := make(map[string]interface{})
+						if toolCallArgs != "" {
+							json.Unmarshal([]byte(toolCallArgs), &input)
+						}
+
+						chunk := &StreamChunk{
+							Type:  "content_block_start",
+							Index: 0,
+							ContentBlock: &ContentBlock{
+								Type:  "tool_use",
+								ID:    currentToolCall.ID,
+								Name:  currentToolCall.Function.Name,
+								Input: input,
+							},
+						}
+						if err := callback(chunk); err != nil {
+							return err
+						}
+					}
+
+					currentToolCall = &tc
+					toolCallArgs = ""
+				}
+
+				if tc.Function.Arguments != "" {
+					toolCallArgs += tc.Function.Arguments
+				}
+			}
+		}
+	}
+
+	// Finish last tool call if any
+	if currentToolCall != nil {
+		input := make(map[string]interface{})
+		if toolCallArgs != "" {
+			json.Unmarshal([]byte(toolCallArgs), &input)
+		}
+
+		chunk := &StreamChunk{
+			Type:  "content_block_start",
+			Index: 0,
+			ContentBlock: &ContentBlock{
+				Type:  "tool_use",
+				ID:    currentToolCall.ID,
+				Name:  currentToolCall.Function.Name,
+				Input: input,
+			},
+		}
+		if err := callback(chunk); err != nil {
+			return err
+		}
 	}
 
 	callback(&StreamChunk{Type: "message_stop"})
@@ -96,10 +193,18 @@ type GroqProvider struct {
 func NewGroqProvider(apiKey string) *GroqProvider {
 	p := NewOpenAICompatibleProvider("groq", apiKey, "https://api.groq.com/openai/v1")
 	p.models = []string{
+		// Meta Llama models
 		"llama-3.3-70b-versatile",
+		"llama-3.1-70b-versatile",
 		"llama-3.1-8b-instant",
+		"llama-guard-3-8b",
+		// Mixtral models
 		"mixtral-8x7b-32768",
+		// Gemma models
 		"gemma2-9b-it",
+		"gemma-7b-it",
+		// DeepSeek models
+		"deepseek-r1-distill-llama-70b",
 	}
 	return &GroqProvider{OpenAICompatibleProvider: p}
 }
@@ -110,15 +215,48 @@ type OpenRouterProvider struct {
 }
 
 // NewOpenRouterProvider creates a new OpenRouter provider
+// OpenRouter provides access to 75+ models from various providers
 func NewOpenRouterProvider(apiKey string) *OpenRouterProvider {
 	p := NewOpenAICompatibleProvider("openrouter", apiKey, "https://openrouter.ai/api/v1")
 	p.models = []string{
+		// Anthropic Claude models
 		"anthropic/claude-sonnet-4-20250514",
 		"anthropic/claude-opus-4-20250514",
+		"anthropic/claude-haiku-4-20250414",
+		"anthropic/claude-3.7-sonnet",
+		"anthropic/claude-3.5-sonnet",
+		"anthropic/claude-3.5-haiku",
+		// OpenAI models
+		"openai/gpt-4-turbo",
+		"openai/gpt-4o",
+		"openai/gpt-4o-mini",
+		"openai/o1",
+		"openai/o1-mini",
 		"openai/gpt-4.1",
-		"openai/o3",
+		// Google models
+		"google/gemini-pro-1.5",
+		"google/gemini-flash-1.5",
+		"google/gemini-2.0-flash-exp",
 		"google/gemini-2.5-flash",
+		// Meta Llama models
 		"meta-llama/llama-3.3-70b-instruct",
+		"meta-llama/llama-3.1-405b-instruct",
+		"meta-llama/llama-3.1-70b-instruct",
+		// Mistral models
+		"mistralai/mistral-large-2411",
+		"mistralai/mistral-medium",
+		"mistralai/mistral-small",
+		"mistralai/codestral",
+		// DeepSeek models
+		"deepseek/deepseek-chat",
+		"deepseek/deepseek-coder",
+		// Qwen models
+		"qwen/qwen-2.5-72b-instruct",
+		"qwen/qwen-2.5-coder-32b-instruct",
+		// Other popular models
+		"cohere/command-r-plus",
+		"perplexity/llama-3.1-sonar-large",
+		"x-ai/grok-2",
 	}
 	return &OpenRouterProvider{OpenAICompatibleProvider: p}
 }

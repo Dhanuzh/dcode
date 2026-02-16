@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 )
 
 // Provider defines the interface for AI providers
@@ -147,4 +148,20 @@ func CreateProvider(name, apiKey string) (Provider, error) {
 	default:
 		return NewOpenAICompatibleProvider(name, apiKey, ""), nil
 	}
+}
+
+// mustMarshalJSON marshals v to JSON, panicking on error
+// Used internally by providers for converting data
+func mustMarshalJSON(v interface{}) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+// mustUnmarshalJSON unmarshals JSON data into v
+// Used internally by providers for parsing data
+func mustUnmarshalJSON(data string, v interface{}) {
+	json.Unmarshal([]byte(data), v)
 }

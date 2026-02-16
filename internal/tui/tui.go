@@ -203,18 +203,18 @@ type Model struct {
 	spinner  spinner.Model
 
 	// State
-	view          View
-	previousView  View
-	width         int
-	height        int
-	sessionID     string
-	messages      []session.Message
+	view         View
+	previousView View
+	width        int
+	height       int
+	sessionID    string
+	messages     []session.Message
 	streamingText *strings.Builder
 	isStreaming   bool
-	currentTool   string
-	statusMsg     string
-	statusExpiry  time.Time
-	focusInput    bool // true = textarea focused, false = viewport focused
+	currentTool  string
+	statusMsg    string
+	statusExpiry time.Time
+	focusInput   bool // true = textarea focused, false = viewport focused
 
 	// Dialog state
 	dialogSelected  int
@@ -403,7 +403,7 @@ func (m Model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+k":
 		m.blurTextarea()
 		return m.openModelDialog()
-	case "ctrl+a":
+	case "ctrl+j":
 		return m.cycleAgent(1)
 	case "ctrl+shift+p":
 		m.blurTextarea()
@@ -1129,11 +1129,57 @@ func (m *Model) renderOverlay(dialog string) string {
 
 // ─── Chat ───────────────────────────────────────────────────────────────────────
 
+var (
+	// opencode-style left border for messages
+	userBorderStyle = lipgloss.NewStyle().
+			Border(lipgloss.Border{Left: "┃"}).
+			BorderForeground(blue).
+			PaddingLeft(2).
+			PaddingTop(0).
+			PaddingBottom(0)
+
+	assistantBorderStyle = lipgloss.NewStyle().
+				Border(lipgloss.Border{Left: "┃"}).
+				BorderForeground(purple).
+				PaddingLeft(2).
+				PaddingTop(0).
+				PaddingBottom(0)
+
+	toolBlockBorderStyle = lipgloss.NewStyle().
+				Border(lipgloss.Border{Left: "┃"}).
+				BorderForeground(surface).
+				PaddingLeft(2).
+				PaddingTop(0).
+				PaddingBottom(0)
+
+	// Tool icons matching opencode
+	toolIcons = map[string]struct {
+		icon  string
+		color lipgloss.Color
+	}{
+		"glob":     {"✱", yellow},
+		"grep":     {"✱", yellow},
+		"read":     {"→", blue},
+		"ls":       {"→", blue},
+		"bash":     {"$", green},
+		"write":    {"←", purple},
+		"edit":     {"←", purple},
+		"patch":    {"←", purple},
+		"webfetch": {"%", blue},
+		"task":     {"#", purple},
+		"todo":     {"☐", green},
+	}
+)
+
 func (m *Model) renderChat() string {
+	if m.width == 0 {
+		return ""
+	}
+
 	var b strings.Builder
 
-	// Header bar with provider / model / agent badges
-	header := lipgloss.JoinHorizontal(lipgloss.Center,
+	// ── Header: left-aligned info ──
+	headerLeft := lipgloss.JoinHorizontal(lipgloss.Center,
 		titleStyle.Render(" DCode "),
 		" ",
 		providerBadge.Render(m.Provider),
@@ -1144,17 +1190,17 @@ func (m *Model) renderChat() string {
 	)
 
 	if s := m.getStatus(); s != "" {
-		header += "  " + dimStyle.Render(s)
+		headerLeft += "  " + dimStyle.Render(s)
 	}
 
-	b.WriteString(header + "\n")
+	b.WriteString(headerLeft + "\n")
 	b.WriteString(dimStyle.Render(strings.Repeat("─", m.width)) + "\n")
 
-	// Messages viewport
+	// ── Messages viewport ──
 	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
 
-	// Streaming indicator
+	// ── Streaming indicator ──
 	if m.isStreaming {
 		ind := m.spinner.View() + " "
 		if m.currentTool != "" {
@@ -1165,18 +1211,17 @@ func (m *Model) renderChat() string {
 		b.WriteString(ind + "\n")
 	}
 
-	// Input area
+	// ── Input separator + textarea ──
 	b.WriteString(dimStyle.Render(strings.Repeat("─", m.width)) + "\n")
 	b.WriteString(m.textarea.View())
 	b.WriteString("\n")
 
-	// Footer keybindings
-	// Focus indicator
+	// ── Footer: status bar ──
 	focusHint := ""
 	if m.focusInput {
 		focusHint = keybindStyle.Render("[INPUT]") + " "
 	} else {
-		focusHint = dimStyle.Render("[CHAT]") + " "
+		focusHint = dimStyle.Render("[SCROLL]") + " "
 	}
 
 	foot := lipgloss.JoinHorizontal(lipgloss.Center,
@@ -1517,52 +1562,206 @@ func (m *Model) renderHelpView() string {
 
 // ─── Viewport content ───────────────────────────────────────────────────────────
 
+// getToolIcon returns the icon and color for a tool name
+func getToolIcon(toolName string) (string, lipgloss.Color) {
+	if info, ok := toolIcons[toolName]; ok {
+		return info.icon, info.color
+	}
+	return "⚙", overlay
+}
+
+// formatToolInput returns a compact summary of tool input params
+func formatToolInput(toolName string, input map[string]interface{}) string {
+	switch toolName {
+	case "glob":
+		if p, ok := input["pattern"]; ok {
+			s := fmt.Sprintf("\"%v\"", p)
+			if d, ok := input["directory"]; ok {
+				s += fmt.Sprintf(" in %v", d)
+			}
+			return s
+		}
+	case "grep":
+		if p, ok := input["pattern"]; ok {
+			s := fmt.Sprintf("\"%v\"", p)
+			if d, ok := input["path"]; ok {
+				s += fmt.Sprintf(" in %v", d)
+			}
+			return s
+		}
+	case "read":
+		if f, ok := input["file_path"]; ok {
+			return fmt.Sprintf("%v", f)
+		}
+	case "ls":
+		if d, ok := input["path"]; ok {
+			return fmt.Sprintf("%v", d)
+		}
+		if d, ok := input["directory"]; ok {
+			return fmt.Sprintf("%v", d)
+		}
+	case "bash":
+		if c, ok := input["command"]; ok {
+			cmd := fmt.Sprintf("%v", c)
+			if len(cmd) > 60 {
+				cmd = cmd[:57] + "..."
+			}
+			return cmd
+		}
+	case "write":
+		if f, ok := input["file_path"]; ok {
+			return fmt.Sprintf("%v", f)
+		}
+	case "edit", "patch":
+		if f, ok := input["file_path"]; ok {
+			return fmt.Sprintf("%v", f)
+		}
+	case "webfetch":
+		if u, ok := input["url"]; ok {
+			return fmt.Sprintf("%v", u)
+		}
+	case "task":
+		if d, ok := input["description"]; ok {
+			desc := fmt.Sprintf("%v", d)
+			if len(desc) > 50 {
+				desc = desc[:47] + "..."
+			}
+			return desc
+		}
+	}
+	return ""
+}
+
+// truncateOutput truncates long tool output with a summary line
+func truncateOutput(content string, maxLines int) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) <= maxLines {
+		return content
+	}
+	result := strings.Join(lines[:maxLines], "\n")
+	result += "\n" + dimStyle.Render(fmt.Sprintf("... %d more lines (Click to expand)", len(lines)-maxLines))
+	return result
+}
+
 func (m *Model) updateViewport() {
 	var content strings.Builder
+	contentWidth := m.width - 6 // account for border + padding
+	if contentWidth < 20 {
+		contentWidth = 20
+	}
 
-	for _, msg := range m.messages {
+	for idx, msg := range m.messages {
 		switch msg.Role {
 		case "user":
-			if msg.Content != "" {
-				content.WriteString(userMsgStyle.Render("You") + "\n")
-				content.WriteString(msg.Content + "\n\n")
-			}
-			for _, part := range msg.Parts {
-				if part.Type == "tool_result" {
-					status := successStyle.Render("✓")
-					if part.IsError {
-						status = errorStyle.Render("✗")
-					}
-					content.WriteString(fmt.Sprintf("  %s %s\n", status, dimStyle.Render("tool result")))
-					if len(part.Content) > 200 {
-						content.WriteString(dimStyle.Render("    "+part.Content[:200]+"...") + "\n")
-					} else if part.Content != "" {
-						content.WriteString(dimStyle.Render("    "+part.Content) + "\n")
-					}
-				}
-			}
+			m.renderUserMessage(&content, msg, idx, contentWidth)
 		case "assistant":
-			content.WriteString(highlightStyle.Render("DCode") + "\n")
-			if msg.Content != "" {
-				content.WriteString(assistantMsgStyle.Render(msg.Content) + "\n")
-			}
-			for _, part := range msg.Parts {
-				if part.Type == "tool_use" {
-					content.WriteString(toolCallStyle.Render(fmt.Sprintf("  ⚡ %s", part.ToolName)) + "\n")
-				}
-			}
-			content.WriteString("\n")
+			m.renderAssistantMessage(&content, msg, contentWidth)
 		}
 	}
 
+	// Streaming content
 	if m.isStreaming && m.streamingText.Len() > 0 {
-		content.WriteString(highlightStyle.Render("DCode") + "\n")
-		content.WriteString(assistantMsgStyle.Render(m.streamingText.String()))
-		content.WriteString(dimStyle.Render("▊") + "\n")
+		streamContent := m.streamingText.String() + dimStyle.Render("▊")
+		bordered := assistantBorderStyle.Width(contentWidth).Render(streamContent)
+		content.WriteString(bordered + "\n")
 	}
 
 	m.viewport.SetContent(content.String())
 	m.viewport.GotoBottom()
+}
+
+func (m *Model) renderUserMessage(b *strings.Builder, msg session.Message, idx int, width int) {
+	if msg.Content == "" && len(msg.Parts) == 0 {
+		return
+	}
+
+	var inner strings.Builder
+
+	if msg.Content != "" {
+		inner.WriteString(userMsgStyle.Render(msg.Content))
+	}
+
+	// Tool results (from previous assistant tool calls)
+	for _, part := range msg.Parts {
+		if part.Type == "tool_result" {
+			status := successStyle.Render("✓")
+			if part.IsError {
+				status = errorStyle.Render("✗")
+			}
+			inner.WriteString("\n" + status + " " + dimStyle.Render("result"))
+			if part.Content != "" {
+				truncated := truncateOutput(part.Content, 8)
+				inner.WriteString("\n" + dimStyle.Render(truncated))
+			}
+		}
+	}
+
+	marginTop := ""
+	if idx > 0 {
+		marginTop = "\n"
+	}
+	bordered := userBorderStyle.Width(width).Render(inner.String())
+	b.WriteString(marginTop + bordered + "\n")
+}
+
+func (m *Model) renderAssistantMessage(b *strings.Builder, msg session.Message, width int) {
+	// Render text content with left border
+	if msg.Content != "" {
+		bordered := assistantBorderStyle.Width(width).Render(
+			assistantMsgStyle.Render(msg.Content),
+		)
+		b.WriteString("\n" + bordered + "\n")
+	}
+
+	// Render tool calls (opencode-style inline tools)
+	for _, part := range msg.Parts {
+		switch part.Type {
+		case "tool_use":
+			icon, clr := getToolIcon(part.ToolName)
+			iconStyled := lipgloss.NewStyle().Foreground(clr).Render(icon)
+			summary := formatToolInput(part.ToolName, part.ToolInput)
+
+			toolLine := fmt.Sprintf("   %s %s", iconStyled, highlightStyle.Render(part.ToolName))
+			if summary != "" {
+				toolLine += " " + dimStyle.Render(summary)
+			}
+
+			// Status indicator
+			switch part.Status {
+			case "running", "pending":
+				toolLine += " " + toolCallStyle.Render("⟳")
+			case "error":
+				toolLine += " " + errorStyle.Render("✗")
+			case "completed":
+				toolLine += " " + successStyle.Render("✓")
+			}
+
+			b.WriteString(toolLine + "\n")
+
+		case "reasoning":
+			if part.Content != "" {
+				thinkContent := dimStyle.Render("Thinking: " + part.Content)
+				bordered := toolBlockBorderStyle.Width(width).Render(thinkContent)
+				b.WriteString(bordered + "\n")
+			}
+
+		case "error":
+			errContent := errorStyle.Render("Error: " + part.Content)
+			bordered := assistantBorderStyle.Width(width).Render(errContent)
+			b.WriteString(bordered + "\n")
+		}
+	}
+
+	// Completion footer (opencode style: ▣ Agent · model · duration)
+	if !m.isStreaming && msg.Content != "" {
+		footer := lipgloss.NewStyle().Foreground(purple).Render("▣") + " " +
+			lipgloss.NewStyle().Foreground(txtClr).Render(strings.Title(m.Agent))
+		footer += dimStyle.Render(" · " + shortModel(m.Model_))
+		if msg.TokensIn > 0 || msg.TokensOut > 0 {
+			footer += dimStyle.Render(fmt.Sprintf(" · %d→%d tokens", msg.TokensIn, msg.TokensOut))
+		}
+		b.WriteString("   " + footer + "\n")
+	}
 }
 
 // ─── Session & Engine ───────────────────────────────────────────────────────────

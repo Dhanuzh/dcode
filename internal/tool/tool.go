@@ -151,4 +151,10 @@ func registerBuiltinTools(r *Registry) {
 	r.Register(TodoReadTool())
 	r.Register(TodoWriteTool())
 	r.Register(TaskTool())
+	r.Register(GitTool())
+	r.Register(WebSearchTool())
+	r.Register(LSPTool())
+	r.Register(MCPTool())
+	r.Register(DockerTool())
+	r.Register(ImageTool())
 }
