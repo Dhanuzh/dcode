@@ -13,13 +13,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/yourusername/dcode/internal/agent"
-	"github.com/yourusername/dcode/internal/config"
-	"github.com/yourusername/dcode/internal/provider"
-	"github.com/yourusername/dcode/internal/session"
-	"github.com/yourusername/dcode/internal/theme"
-	"github.com/yourusername/dcode/internal/tool"
-	"github.com/yourusername/dcode/internal/tui/components"
+	"github.com/Dhanuzh/dcode/internal/agent"
+	"github.com/Dhanuzh/dcode/internal/config"
+	"github.com/Dhanuzh/dcode/internal/provider"
+	"github.com/Dhanuzh/dcode/internal/session"
+	"github.com/Dhanuzh/dcode/internal/theme"
+	"github.com/Dhanuzh/dcode/internal/tool"
+	"github.com/Dhanuzh/dcode/internal/tui/components"
 )
 
 // ─── Views ──────────────────────────────────────────────────────────────────────

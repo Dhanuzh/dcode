@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yourusername/dcode/internal/agent"
-	"github.com/yourusername/dcode/internal/config"
-	"github.com/yourusername/dcode/internal/provider"
-	"github.com/yourusername/dcode/internal/tool"
+	"github.com/Dhanuzh/dcode/internal/agent"
+	"github.com/Dhanuzh/dcode/internal/config"
+	"github.com/Dhanuzh/dcode/internal/provider"
+	"github.com/Dhanuzh/dcode/internal/tool"
 )
 
 // generateToolID generates a unique tool call ID for missing IDs in session history

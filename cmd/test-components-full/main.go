@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yourusername/dcode/internal/tui/components"
+	"github.com/Dhanuzh/dcode/internal/tui/components"
 )
 
 // model represents the TUI application state

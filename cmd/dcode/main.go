@@ -16,13 +16,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/yourusername/dcode/internal/agent"
-	"github.com/yourusername/dcode/internal/config"
-	"github.com/yourusername/dcode/internal/provider"
-	"github.com/yourusername/dcode/internal/server"
-	"github.com/yourusername/dcode/internal/session"
-	"github.com/yourusername/dcode/internal/tool"
-	"github.com/yourusername/dcode/internal/tui"
+	"github.com/Dhanuzh/dcode/internal/agent"
+	"github.com/Dhanuzh/dcode/internal/config"
+	"github.com/Dhanuzh/dcode/internal/provider"
+	"github.com/Dhanuzh/dcode/internal/server"
+	"github.com/Dhanuzh/dcode/internal/session"
+	"github.com/Dhanuzh/dcode/internal/tool"
+	"github.com/Dhanuzh/dcode/internal/tui"
 )
 
 var (
@@ -1039,7 +1039,7 @@ func upgradeCmd() *cobra.Command {
 			// Detect installation method
 			method := detectInstallMethod()
 			if method == "" {
-				return fmt.Errorf("could not detect installation method. Please upgrade manually:\n  go install github.com/yourusername/dcode/cmd/dcode@%s", target)
+				return fmt.Errorf("could not detect installation method. Please upgrade manually:\n  go install github.com/Dhanuzh/dcode/cmd/dcode@%s", target)
 			}
 
 			fmt.Printf("Detected installation method: %s\n", method)
@@ -1052,8 +1052,8 @@ func upgradeCmd() *cobra.Command {
 				} else if !strings.HasPrefix(installTarget, "v") {
 					installTarget = "v" + installTarget
 				}
-				fmt.Printf("Running: go install github.com/yourusername/dcode/cmd/dcode@%s\n", installTarget)
-				out, err := exec.Command("go", "install", "github.com/yourusername/dcode/cmd/dcode@"+installTarget).CombinedOutput()
+				fmt.Printf("Running: go install github.com/Dhanuzh/dcode/cmd/dcode@%s\n", installTarget)
+				out, err := exec.Command("go", "install", "github.com/Dhanuzh/dcode/cmd/dcode@"+installTarget).CombinedOutput()
 				if err != nil {
 					return fmt.Errorf("upgrade failed: %s\n%s", err, string(out))
 				}

@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourusername/dcode/internal/agent"
-	"github.com/yourusername/dcode/internal/config"
-	"github.com/yourusername/dcode/internal/provider"
-	"github.com/yourusername/dcode/internal/session"
-	"github.com/yourusername/dcode/internal/tool"
+	"github.com/Dhanuzh/dcode/internal/agent"
+	"github.com/Dhanuzh/dcode/internal/config"
+	"github.com/Dhanuzh/dcode/internal/provider"
+	"github.com/Dhanuzh/dcode/internal/session"
+	"github.com/Dhanuzh/dcode/internal/tool"
 )
 
 // Server is the HTTP API server

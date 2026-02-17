@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/yourusername/dcode/internal/config"
+	"github.com/Dhanuzh/dcode/internal/config"
 )
 
 // AgentMode defines the agent's operational mode

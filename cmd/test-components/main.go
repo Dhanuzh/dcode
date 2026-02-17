@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/yourusername/dcode/internal/tui/components"
+	"github.com/Dhanuzh/dcode/internal/tui/components"
 )
 
 func main() {
