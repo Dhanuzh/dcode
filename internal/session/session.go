@@ -15,57 +15,114 @@ import (
 
 // Session represents a conversation session
 type Session struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Agent     string    `json:"agent"`
-	Model     string    `json:"model"`
-	Provider  string    `json:"provider"`
-	ParentID  string    `json:"parent_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Messages  []Message `json:"messages"`
-	Summary   *Summary  `json:"summary,omitempty"`
-	Status    string    `json:"status"` // "idle", "busy", "retry"
+	ID        string      `json:"id"`
+	Title     string      `json:"title"`
+	Agent     string      `json:"agent"`
+	Model     string      `json:"model"`
+	Provider  string      `json:"provider"`
+	ParentID  string      `json:"parent_id,omitempty"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
+	Messages  []Message   `json:"messages"`
+	Summary   *Summary    `json:"summary,omitempty"`
+	Status    string      `json:"status"` // "idle", "busy", "retry"
+	Revert    *RevertInfo `json:"revert,omitempty"`
+}
+
+// RevertInfo tracks the revert state for undo operations
+type RevertInfo struct {
+	MessageID string `json:"message_id"`
+	PartID    string `json:"part_id,omitempty"`
+	Snapshot  string `json:"snapshot,omitempty"` // Git tree hash for the snapshot
+	Diff      string `json:"diff,omitempty"`     // Diff from snapshot to current
 }
 
 // Summary tracks session statistics
 type Summary struct {
-	Additions  int      `json:"additions"`
-	Deletions  int      `json:"deletions"`
-	Files      []string `json:"files"`
-	TokensIn   int      `json:"tokens_in"`
-	TokensOut  int      `json:"tokens_out"`
-	ToolCalls  int      `json:"tool_calls"`
-	TotalCost  float64  `json:"total_cost"`
+	Additions int      `json:"additions"`
+	Deletions int      `json:"deletions"`
+	Files     []string `json:"files"`
+	FileCount int      `json:"file_count"`
+	TokensIn  int      `json:"tokens_in"`
+	TokensOut int      `json:"tokens_out"`
+	ToolCalls int      `json:"tool_calls"`
+	TotalCost float64  `json:"total_cost"`
 }
 
 // Message represents a conversation message
 type Message struct {
-	ID        string    `json:"id"`
-	Role      string    `json:"role"` // "user", "assistant", "system"
-	Content   string    `json:"content"`
-	Parts     []Part    `json:"parts,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	TokensIn  int       `json:"tokens_in,omitempty"`
-	TokensOut int       `json:"tokens_out,omitempty"`
+	ID           string        `json:"id"`
+	Role         string        `json:"role"` // "user", "assistant", "system"
+	Content      string        `json:"content"`
+	Parts        []Part        `json:"parts,omitempty"`
+	CreatedAt    time.Time     `json:"created_at"`
+	CompletedAt  time.Time     `json:"completed_at,omitempty"`
+	TokensIn     int           `json:"tokens_in,omitempty"`
+	TokensOut    int           `json:"tokens_out,omitempty"`
+	TokensCache  int           `json:"tokens_cache,omitempty"`
+	Cost         float64       `json:"cost,omitempty"`
+	IsSummary    bool          `json:"is_summary,omitempty"`    // True for compaction summary messages
+	AgentName    string        `json:"agent_name,omitempty"`    // Which agent produced this message
+	ParentMsgID  string        `json:"parent_msg_id,omitempty"` // Links assistant reply to user message
+	Variant      string        `json:"variant,omitempty"`       // Reasoning variant used
+	ModelID      string        `json:"model_id,omitempty"`
+	ProviderID   string        `json:"provider_id,omitempty"`
+	FinishReason string        `json:"finish_reason,omitempty"` // "stop", "tool_use", "length", etc.
+	Error        *MessageError `json:"error,omitempty"`
+}
+
+// MessageError represents an error that occurred during message processing
+type MessageError struct {
+	Type    string `json:"type"` // "api_error", "context_overflow", "unknown"
+	Message string `json:"message"`
+	Code    string `json:"code,omitempty"`
 }
 
 // Part represents a message part (text, tool call, reasoning, etc.)
 type Part struct {
-	Type      string                 `json:"type"` // "text", "tool_use", "tool_result", "reasoning", "error"
-	Content   string                 `json:"content,omitempty"`
-	ToolID    string                 `json:"tool_id,omitempty"`
-	ToolName  string                 `json:"tool_name,omitempty"`
-	ToolInput map[string]interface{} `json:"tool_input,omitempty"`
-	IsError   bool                   `json:"is_error,omitempty"`
-	Status    string                 `json:"status,omitempty"` // "pending", "running", "completed", "error"
+	Type        string                 `json:"type"` // "text", "tool_use", "tool_result", "reasoning", "error", "step_start", "step_finish", "patch"
+	Content     string                 `json:"content,omitempty"`
+	ToolID      string                 `json:"tool_id,omitempty"`
+	ToolName    string                 `json:"tool_name,omitempty"`
+	ToolInput   map[string]interface{} `json:"tool_input,omitempty"`
+	IsError     bool                   `json:"is_error,omitempty"`
+	IsCompacted bool                   `json:"is_compacted,omitempty"` // Tool output was pruned
+	IsSynthetic bool                   `json:"is_synthetic,omitempty"` // Synthetic part (e.g., auto-continue)
+	Status      string                 `json:"status,omitempty"`       // "pending", "running", "completed", "error"
+	Snapshot    string                 `json:"snapshot,omitempty"`     // Git tree hash for step tracking
+	PatchHash   string                 `json:"patch_hash,omitempty"`   // Hash of the patch
+	PatchFiles  []string               `json:"patch_files,omitempty"`  // Files changed in the patch
+	StartedAt   time.Time              `json:"started_at,omitempty"`
+	EndedAt     time.Time              `json:"ended_at,omitempty"`
+	StepCost    float64                `json:"step_cost,omitempty"`
+	StepTokens  *StepTokens            `json:"step_tokens,omitempty"`
+	Title       string                 `json:"title,omitempty"`    // Tool output title
+	Metadata    map[string]interface{} `json:"metadata,omitempty"` // Provider metadata
+}
+
+// StepTokens tracks token usage for a single step
+type StepTokens struct {
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	Reasoning  int `json:"reasoning"`
+	CacheRead  int `json:"cache_read"`
+	CacheWrite int `json:"cache_write"`
+}
+
+// CostInfo tracks cost at a granular level
+type CostInfo struct {
+	InputCost  float64 `json:"input_cost"`
+	OutputCost float64 `json:"output_cost"`
+	CacheCost  float64 `json:"cache_cost"`
+	Total      float64 `json:"total"`
 }
 
 // Store manages session persistence
 type Store struct {
-	mu       sync.RWMutex
-	baseDir  string
-	sessions map[string]*Session
+	mu        sync.RWMutex
+	baseDir   string
+	sessions  map[string]*Session
+	statusMgr *StatusManager
 }
 
 // NewStore creates a new session store
@@ -75,8 +132,9 @@ func NewStore(baseDir string) (*Store, error) {
 	}
 
 	store := &Store{
-		baseDir:  baseDir,
-		sessions: make(map[string]*Session),
+		baseDir:   baseDir,
+		sessions:  make(map[string]*Session),
+		statusMgr: NewStatusManager(),
 	}
 
 	// Load existing sessions
@@ -85,6 +143,11 @@ func NewStore(baseDir string) (*Store, error) {
 	}
 
 	return store, nil
+}
+
+// StatusManager returns the status manager for this store
+func (s *Store) StatusManager() *StatusManager {
+	return s.statusMgr
 }
 
 // Create creates a new session
@@ -169,8 +232,30 @@ func (s *Store) AddMessage(sessionID string, msg Message) error {
 	}
 	session.Summary.TokensIn += msg.TokensIn
 	session.Summary.TokensOut += msg.TokensOut
+	session.Summary.TotalCost += msg.Cost
 
 	return s.save(session)
+}
+
+// UpdateMessage updates an existing message in the session
+func (s *Store) UpdateMessage(sessionID, messageID string, updater func(*Message)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	for i := range session.Messages {
+		if session.Messages[i].ID == messageID {
+			updater(&session.Messages[i])
+			session.UpdatedAt = time.Now()
+			return s.save(session)
+		}
+	}
+
+	return fmt.Errorf("message not found: %s", messageID)
 }
 
 // UpdateTitle updates the session title
@@ -200,6 +285,143 @@ func (s *Store) UpdateStatus(sessionID, status string) error {
 
 	session.Status = status
 	return nil // Don't save for status-only updates (transient)
+}
+
+// SetRevert sets the revert state for a session
+func (s *Store) SetRevert(sessionID string, revert *RevertInfo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	session.Revert = revert
+	session.UpdatedAt = time.Now()
+	return s.save(session)
+}
+
+// Revert reverts a session to a specific message, using snapshots to undo file changes
+func (s *Store) Revert(sessionID, messageID string, snapshot *Snapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	// Find the target message and collect patches to revert
+	var patches []SnapshotPatch
+	found := false
+	var lastUserMsgID string
+
+	for _, msg := range session.Messages {
+		if msg.Role == "user" {
+			lastUserMsgID = msg.ID
+		}
+		if msg.ID == messageID {
+			found = true
+		}
+		if found {
+			for _, part := range msg.Parts {
+				if part.Type == "patch" && part.PatchHash != "" {
+					patches = append(patches, SnapshotPatch{
+						Hash:  part.PatchHash,
+						Files: part.PatchFiles,
+					})
+				}
+			}
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("message not found: %s", messageID)
+	}
+
+	// Revert file changes using snapshot
+	if snapshot != nil && len(patches) > 0 {
+		if err := snapshot.Revert(patches); err != nil {
+			return fmt.Errorf("failed to revert file changes: %w", err)
+		}
+	}
+
+	// Track revert state
+	snapshotHash := ""
+	if session.Revert != nil && session.Revert.Snapshot != "" {
+		snapshotHash = session.Revert.Snapshot
+	} else if snapshot != nil {
+		snapshotHash, _ = snapshot.Track()
+	}
+
+	session.Revert = &RevertInfo{
+		MessageID: lastUserMsgID,
+		Snapshot:  snapshotHash,
+	}
+
+	if snapshotHash != "" && snapshot != nil {
+		diff, _ := snapshot.Diff(snapshotHash)
+		session.Revert.Diff = diff
+	}
+
+	session.UpdatedAt = time.Now()
+	return s.save(session)
+}
+
+// Unrevert undoes a revert, restoring the session to its pre-revert state
+func (s *Store) Unrevert(sessionID string, snapshot *Snapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	if session.Revert == nil {
+		return nil
+	}
+
+	// Restore from snapshot
+	if session.Revert.Snapshot != "" && snapshot != nil {
+		if err := snapshot.Restore(session.Revert.Snapshot); err != nil {
+			return fmt.Errorf("failed to restore snapshot: %w", err)
+		}
+	}
+
+	session.Revert = nil
+	session.UpdatedAt = time.Now()
+	return s.save(session)
+}
+
+// CleanupRevert removes messages after the revert point and clears the revert state
+func (s *Store) CleanupRevert(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	if session.Revert == nil {
+		return nil
+	}
+
+	// Remove messages from the revert point onwards
+	var preserved []Message
+	for _, msg := range session.Messages {
+		if msg.ID == session.Revert.MessageID {
+			break
+		}
+		preserved = append(preserved, msg)
+	}
+
+	session.Messages = preserved
+	session.Revert = nil
+	session.UpdatedAt = time.Now()
+	return s.save(session)
 }
 
 // Fork creates a copy of a session at a specific message point
@@ -307,7 +529,7 @@ func (s *Store) GetLatest() *Session {
 	return sessions[0]
 }
 
-// Compact removes old tool result content from messages to save context space
+// Compact performs token-based compaction using the pruning algorithm
 func (s *Store) Compact(sessionID string, keepLastN int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -317,26 +539,58 @@ func (s *Store) Compact(sessionID string, keepLastN int) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	if keepLastN <= 0 {
-		keepLastN = 10 // Keep last 10 messages uncompacted
+	// Use the new pruning system
+	session.Messages = PruneToolOutputs(session.Messages, true)
+	session.UpdatedAt = time.Now()
+	return s.save(session)
+}
+
+// GetSessionCost calculates total session cost from messages
+func (s *Store) GetSessionCost(sessionID string) (float64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return 0, fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	cutoff := len(session.Messages) - keepLastN
-	if cutoff <= 0 {
-		return nil
+	var total float64
+	for _, msg := range session.Messages {
+		total += msg.Cost
+	}
+	return total, nil
+}
+
+// GetSessionStats returns aggregate statistics for a session
+func (s *Store) GetSessionStats(sessionID string) (*Summary, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	for i := 0; i < cutoff; i++ {
-		msg := &session.Messages[i]
-		for j := range msg.Parts {
-			if msg.Parts[j].Type == "tool_result" && len(msg.Parts[j].Content) > 200 {
-				msg.Parts[j].Content = msg.Parts[j].Content[:200] + "\n... (compacted)"
+	summary := &Summary{}
+	for _, msg := range session.Messages {
+		summary.TokensIn += msg.TokensIn
+		summary.TokensOut += msg.TokensOut
+		summary.TotalCost += msg.Cost
+		for _, part := range msg.Parts {
+			if part.Type == "tool_use" {
+				summary.ToolCalls++
+			}
+			if part.Type == "patch" {
+				for _, f := range part.PatchFiles {
+					summary.Files = append(summary.Files, f)
+				}
 			}
 		}
 	}
+	summary.FileCount = len(summary.Files)
 
-	session.UpdatedAt = time.Now()
-	return s.save(session)
+	return summary, nil
 }
 
 // Internal helpers

@@ -8,8 +8,21 @@ import (
 
 // ToolResult represents the result of a tool execution
 type ToolResult struct {
-	Output  string `json:"output"`
-	IsError bool   `json:"is_error"`
+	Output      string           `json:"output"`
+	IsError     bool             `json:"is_error"`
+	Title       string           `json:"title,omitempty"`       // Optional title for tool output display
+	Attachments []FileAttachment `json:"attachments,omitempty"` // File attachments (images, PDFs)
+}
+
+// FileAttachment represents a base64-encoded file attachment
+type FileAttachment struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id,omitempty"`
+	MessageID string `json:"message_id,omitempty"`
+	Type      string `json:"type"` // "file"
+	MIME      string `json:"mime"` // e.g. "image/png", "application/pdf"
+	URL       string `json:"url"`  // data URL: "data:<mime>;base64,<data>"
+	Filename  string `json:"filename,omitempty"`
 }
 
 // ToolContext provides context for tool execution
@@ -138,21 +151,45 @@ type ProviderTool struct {
 
 // registerBuiltinTools registers all built-in tools
 func registerBuiltinTools(r *Registry) {
+	// Core file operations
 	r.Register(ReadTool())
 	r.Register(WriteTool())
 	r.Register(EditTool())
 	r.Register(MultiEditTool())
 	r.Register(PatchTool())
+	r.Register(ApplyPatchTool())
+
+	// Shell and search
 	r.Register(BashTool())
 	r.Register(GlobTool())
 	r.Register(GrepTool())
 	r.Register(LsTool())
+	r.Register(CodeSearchTool())
+
+	// Web and external
 	r.Register(WebFetchTool())
+	r.Register(WebSearchTool())
+
+	// Task management
 	r.Register(TodoReadTool())
 	r.Register(TodoWriteTool())
 	r.Register(TaskTool())
+
+	// Interactive
+	r.Register(QuestionTool())
+
+	// Skills
+	r.Register(SkillTool())
+
+	// Batch operations
+	r.Register(BatchTool())
+
+	// Plan mode
+	r.Register(PlanEnterTool())
+	r.Register(PlanExitTool())
+
+	// Development tools
 	r.Register(GitTool())
-	r.Register(WebSearchTool())
 	r.Register(LSPTool())
 	r.Register(MCPTool())
 	r.Register(DockerTool())

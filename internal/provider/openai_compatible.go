@@ -127,23 +127,29 @@ func (p *OpenAICompatibleProvider) StreamMessage(ctx context.Context, req *Messa
 				if tc.ID != "" {
 					if currentToolCall != nil {
 						// Finish previous tool call
-						input := make(map[string]interface{})
-						if toolCallArgs != "" {
-							json.Unmarshal([]byte(toolCallArgs), &input)
+						id := currentToolCall.ID
+						if id == "" {
+							id = generateToolCallID()
 						}
+						if currentToolCall.Function.Name != "" {
+							input := make(map[string]interface{})
+							if toolCallArgs != "" {
+								json.Unmarshal([]byte(toolCallArgs), &input)
+							}
 
-						chunk := &StreamChunk{
-							Type:  "content_block_start",
-							Index: 0,
-							ContentBlock: &ContentBlock{
-								Type:  "tool_use",
-								ID:    currentToolCall.ID,
-								Name:  currentToolCall.Function.Name,
-								Input: input,
-							},
-						}
-						if err := callback(chunk); err != nil {
-							return err
+							chunk := &StreamChunk{
+								Type:  "content_block_start",
+								Index: 0,
+								ContentBlock: &ContentBlock{
+									Type:  "tool_use",
+									ID:    id,
+									Name:  currentToolCall.Function.Name,
+									Input: input,
+								},
+							}
+							if err := callback(chunk); err != nil {
+								return err
+							}
 						}
 					}
 
@@ -159,7 +165,11 @@ func (p *OpenAICompatibleProvider) StreamMessage(ctx context.Context, req *Messa
 	}
 
 	// Finish last tool call if any
-	if currentToolCall != nil {
+	if currentToolCall != nil && currentToolCall.Function.Name != "" {
+		id := currentToolCall.ID
+		if id == "" {
+			id = generateToolCallID()
+		}
 		input := make(map[string]interface{})
 		if toolCallArgs != "" {
 			json.Unmarshal([]byte(toolCallArgs), &input)
@@ -170,7 +180,7 @@ func (p *OpenAICompatibleProvider) StreamMessage(ctx context.Context, req *Messa
 			Index: 0,
 			ContentBlock: &ContentBlock{
 				Type:  "tool_use",
-				ID:    currentToolCall.ID,
+				ID:    id,
 				Name:  currentToolCall.Function.Name,
 				Input: input,
 			},
@@ -193,18 +203,30 @@ type GroqProvider struct {
 func NewGroqProvider(apiKey string) *GroqProvider {
 	p := NewOpenAICompatibleProvider("groq", apiKey, "https://api.groq.com/openai/v1")
 	p.models = []string{
-		// Meta Llama models
+		// Meta Llama
 		"llama-3.3-70b-versatile",
-		"llama-3.1-70b-versatile",
 		"llama-3.1-8b-instant",
 		"llama-guard-3-8b",
-		// Mixtral models
-		"mixtral-8x7b-32768",
-		// Gemma models
-		"gemma2-9b-it",
-		"gemma-7b-it",
-		// DeepSeek models
+		"meta-llama/llama-4-scout-17b-16e-instruct",
+		"meta-llama/llama-4-maverick-17b-128e-instruct",
+		"meta-llama/llama-guard-4-12b",
+		"llama3-70b-8192",
+		"llama3-8b-8192",
+		// Qwen
+		"qwen-qwq-32b",
+		"qwen/qwen3-32b",
+		// DeepSeek
 		"deepseek-r1-distill-llama-70b",
+		// Mistral
+		"mistral-saba-24b",
+		// Google Gemma
+		"gemma2-9b-it",
+		// Moonshot / Kimi
+		"moonshotai/kimi-k2-instruct",
+		"moonshotai/kimi-k2-instruct-0905",
+		// OpenAI
+		"openai/gpt-oss-120b",
+		"openai/gpt-oss-20b",
 	}
 	return &GroqProvider{OpenAICompatibleProvider: p}
 }
@@ -219,44 +241,80 @@ type OpenRouterProvider struct {
 func NewOpenRouterProvider(apiKey string) *OpenRouterProvider {
 	p := NewOpenAICompatibleProvider("openrouter", apiKey, "https://openrouter.ai/api/v1")
 	p.models = []string{
-		// Anthropic Claude models
-		"anthropic/claude-sonnet-4-20250514",
-		"anthropic/claude-opus-4-20250514",
-		"anthropic/claude-haiku-4-20250414",
+		// Anthropic Claude
+		"anthropic/claude-opus-4.6",
+		"anthropic/claude-sonnet-4.5",
+		"anthropic/claude-opus-4.5",
+		"anthropic/claude-opus-4.1",
+		"anthropic/claude-sonnet-4",
+		"anthropic/claude-opus-4",
+		"anthropic/claude-haiku-4.5",
 		"anthropic/claude-3.7-sonnet",
 		"anthropic/claude-3.5-sonnet",
 		"anthropic/claude-3.5-haiku",
-		// OpenAI models
-		"openai/gpt-4-turbo",
+		"anthropic/claude-3-opus",
+
+		// OpenAI
+		"openai/gpt-5.2-codex",
+		"openai/gpt-5.2",
+		"openai/gpt-5.1-codex-max",
+		"openai/gpt-5.1-codex",
+		"openai/gpt-5.1",
+		"openai/gpt-5",
+		"openai/gpt-5-mini",
+		"openai/gpt-4.1",
 		"openai/gpt-4o",
 		"openai/gpt-4o-mini",
-		"openai/o1",
-		"openai/o1-mini",
-		"openai/gpt-4.1",
-		// Google models
-		"google/gemini-pro-1.5",
-		"google/gemini-flash-1.5",
-		"google/gemini-2.0-flash-exp",
+		"openai/o3",
+		"openai/o3-pro",
+		"openai/o4-mini",
+
+		// Google Gemini
+		"google/gemini-3-flash-preview",
+		"google/gemini-3-pro-preview",
+		"google/gemini-2.5-pro",
 		"google/gemini-2.5-flash",
-		// Meta Llama models
+		"google/gemini-2.0-flash",
+
+		// xAI Grok
+		"x-ai/grok-4",
+		"x-ai/grok-4-fast",
+		"x-ai/grok-3",
+		"x-ai/grok-3-fast",
+		"x-ai/grok-3-mini",
+
+		// Meta Llama
+		"meta-llama/llama-4-maverick-17b-128e-instruct",
+		"meta-llama/llama-4-scout-17b-16e-instruct",
 		"meta-llama/llama-3.3-70b-instruct",
 		"meta-llama/llama-3.1-405b-instruct",
-		"meta-llama/llama-3.1-70b-instruct",
-		// Mistral models
-		"mistralai/mistral-large-2411",
-		"mistralai/mistral-medium",
-		"mistralai/mistral-small",
-		"mistralai/codestral",
-		// DeepSeek models
+
+		// DeepSeek
+		"deepseek/deepseek-r1",
 		"deepseek/deepseek-chat",
-		"deepseek/deepseek-coder",
-		// Qwen models
-		"qwen/qwen-2.5-72b-instruct",
-		"qwen/qwen-2.5-coder-32b-instruct",
-		// Other popular models
+
+		// Mistral
+		"mistralai/devstral-medium",
+		"mistralai/magistral-medium",
+		"mistralai/mistral-large",
+		"mistralai/codestral",
+
+		// Qwen
+		"qwen/qwen3-coder-480b",
+		"qwen/qwen3-235b",
+		"qwen/qwq-32b",
+
+		// Moonshot / Kimi
+		"moonshotai/kimi-k2.5",
+		"moonshotai/kimi-k2-instruct",
+
+		// Cohere
 		"cohere/command-r-plus",
-		"perplexity/llama-3.1-sonar-large",
-		"x-ai/grok-2",
+		"cohere/command-r",
+
+		// Perplexity
+		"perplexity/sonar-pro",
+		"perplexity/sonar",
 	}
 	return &OpenRouterProvider{OpenAICompatibleProvider: p}
 }
@@ -288,15 +346,28 @@ func convertToOpenAIMessages(req *MessageRequest) []openai.ChatCompletionMessage
 				case "text":
 					textParts = append(textParts, block.Text)
 				case "tool_use":
+					id := block.ID
+					if id == "" {
+						id = generateToolCallID()
+					}
+					if block.Name == "" {
+						continue
+					}
 					inputJSON, _ := json.Marshal(block.Input)
+					if inputJSON == nil || string(inputJSON) == "null" {
+						inputJSON = []byte("{}")
+					}
 					toolCalls = append(toolCalls, openai.ToolCall{
-						ID:   block.ID,
+						ID:   id,
 						Type: openai.ToolTypeFunction,
 						Function: openai.FunctionCall{
 							Name: block.Name, Arguments: string(inputJSON),
 						},
 					})
 				case "tool_result":
+					if block.ToolUseID == "" {
+						continue
+					}
 					resultContent := ""
 					switch v := block.Content.(type) {
 					case string:
@@ -359,10 +430,17 @@ func convertFromOpenAIResponse(resp *openai.ChatCompletionResponse) *MessageResp
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
+		id := tc.ID
+		if id == "" {
+			id = generateToolCallID()
+		}
+		if tc.Function.Name == "" {
+			continue
+		}
 		var input map[string]interface{}
 		json.Unmarshal([]byte(tc.Function.Arguments), &input)
 		content = append(content, ContentBlock{
-			Type: "tool_use", ID: tc.ID, Name: tc.Function.Name, Input: input,
+			Type: "tool_use", ID: id, Name: tc.Function.Name, Input: input,
 		})
 	}
 

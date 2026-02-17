@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +15,13 @@ import (
 	"strings"
 	"time"
 )
+
+// generateToolCallID generates a unique tool call ID like "call_xxxxxxxxxxxx"
+func generateToolCallID() string {
+	b := make([]byte, 12)
+	rand.Read(b)
+	return "call_" + hex.EncodeToString(b)
+}
 
 // CopilotProvider implements the Provider interface for GitHub Copilot
 type CopilotProvider struct {
@@ -49,17 +58,26 @@ func (p *CopilotProvider) Name() string { return "copilot" }
 
 func (p *CopilotProvider) Models() []string {
 	return []string{
-		"claude-sonnet-4-20250514",
-		"claude-3.5-sonnet",
+		"claude-opus-4.6",
+		"claude-sonnet-4.5",
+		"claude-opus-4.5",
+		"claude-opus-41",
+		"claude-sonnet-4",
+		"claude-haiku-4.5",
+		"gpt-5.2-codex",
+		"gpt-5.2",
+		"gpt-5.1-codex-max",
+		"gpt-5.1-codex",
+		"gpt-5.1-codex-mini",
+		"gpt-5.1",
+		"gpt-5",
+		"gpt-5-mini",
 		"gpt-4.1",
-		"gpt-4.1-mini",
-		"gpt-4.1-nano",
 		"gpt-4o",
-		"gpt-4o-mini",
-		"gpt-4-turbo",
-		"o3",
-		"o3-mini",
-		"o4-mini",
+		"grok-code-fast-1",
+		"gemini-3-flash-preview",
+		"gemini-3-pro-preview",
+		"gemini-2.5-pro",
 	}
 }
 
@@ -110,8 +128,6 @@ func saveCopilotOAuthToken(token string) error {
 	}
 	return os.WriteFile(filepath.Join(dir, "copilot_oauth.json"), data, 0600)
 }
-
-
 
 // CopilotLogin performs the GitHub OAuth device flow for Copilot authentication
 func CopilotLogin() error {
@@ -218,7 +234,8 @@ func CopilotLogin() error {
 }
 
 func (p *CopilotProvider) CreateMessage(ctx context.Context, req *MessageRequest) (*MessageResponse, error) {
-	messages := p.convertMessages(req.Messages)
+	normalizedMsgs := NormalizeMessages(req.Messages, "copilot")
+	messages := p.convertMessages(normalizedMsgs)
 
 	if req.System != "" {
 		messages = append([]map[string]interface{}{
@@ -279,7 +296,8 @@ func (p *CopilotProvider) CreateMessage(ctx context.Context, req *MessageRequest
 }
 
 func (p *CopilotProvider) StreamMessage(ctx context.Context, req *MessageRequest, callback func(*StreamChunk) error) error {
-	messages := p.convertMessages(req.Messages)
+	normalizedMsgs := NormalizeMessages(req.Messages, "copilot")
+	messages := p.convertMessages(normalizedMsgs)
 
 	if req.System != "" {
 		messages = append([]map[string]interface{}{
@@ -347,9 +365,9 @@ func (p *CopilotProvider) parseSSEStream(body io.Reader, callback func(*StreamCh
 
 	textContent := ""
 	var toolCalls []struct {
-		ID       string
-		Name     string
-		Args     string
+		ID   string
+		Name string
+		Args string
 	}
 
 	sentStart := false
@@ -453,6 +471,15 @@ func (p *CopilotProvider) parseSSEStream(body io.Reader, callback func(*StreamCh
 
 			// Emit tool call blocks
 			for i, tc := range toolCalls {
+				// Generate ID if missing (like opencode's generateId())
+				if tc.ID == "" {
+					tc.ID = generateToolCallID()
+					toolCalls[i].ID = tc.ID
+				}
+				// Skip tool calls without a function name
+				if tc.Name == "" {
+					continue
+				}
 				idx := i + 1
 				if textContent == "" {
 					idx = i
@@ -485,15 +512,25 @@ func (p *CopilotProvider) parseSSEStream(body io.Reader, callback func(*StreamCh
 	if textContent != "" {
 		accumulated.Content = append(accumulated.Content, ContentBlock{Type: "text", Text: textContent})
 	}
+	validToolCalls := 0
 	for _, tc := range toolCalls {
+		// Generate ID if missing
+		if tc.ID == "" {
+			tc.ID = generateToolCallID()
+		}
+		// Skip tool calls without a function name
+		if tc.Name == "" {
+			continue
+		}
 		var input map[string]interface{}
 		json.Unmarshal([]byte(tc.Args), &input)
 		accumulated.Content = append(accumulated.Content, ContentBlock{
 			Type: "tool_use", ID: tc.ID, Name: tc.Name, Input: input,
 		})
+		validToolCalls++
 	}
 
-	if len(toolCalls) > 0 {
+	if validToolCalls > 0 {
 		accumulated.StopReason = "tool_use"
 	} else {
 		accumulated.StopReason = "end_turn"
@@ -544,10 +581,18 @@ func (p *CopilotProvider) parseOpenAIResponse(body []byte) (*MessageResponse, er
 	}
 
 	for _, toolCall := range choice.Message.ToolCalls {
+		id := toolCall.ID
+		if id == "" {
+			id = generateToolCallID()
+		}
+		name := toolCall.Function.Name
+		if name == "" {
+			continue // Skip tool calls without a function name
+		}
 		var input map[string]interface{}
 		json.Unmarshal([]byte(toolCall.Function.Arguments), &input)
 		content = append(content, ContentBlock{
-			Type: "tool_use", ID: toolCall.ID, Name: toolCall.Function.Name, Input: input,
+			Type: "tool_use", ID: id, Name: name, Input: input,
 		})
 	}
 
@@ -566,29 +611,71 @@ func (p *CopilotProvider) parseOpenAIResponse(body []byte) (*MessageResponse, er
 func (p *CopilotProvider) convertMessages(messages []Message) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0)
 
+	// First pass: collect all valid tool call IDs from assistant messages
+	// so we can skip orphaned tool results that reference non-existent tool calls
+	validToolCallIDs := make(map[string]bool)
+	for _, msg := range messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		if blocks, ok := msg.Content.([]ContentBlock); ok {
+			for _, block := range blocks {
+				if block.Type == "tool_use" && block.ID != "" && block.Name != "" {
+					validToolCallIDs[block.ID] = true
+				}
+			}
+		}
+	}
+
 	for _, msg := range messages {
 		msgMap := map[string]interface{}{"role": msg.Role}
+		hasContent := false
 
 		switch content := msg.Content.(type) {
 		case string:
 			msgMap["content"] = content
+			hasContent = true
 		case []ContentBlock:
 			textParts := []string{}
 			var toolCalls []map[string]interface{}
+			var toolCallIDsInMsg []string
 
 			for _, block := range content {
 				switch block.Type {
 				case "text":
 					textParts = append(textParts, block.Text)
 				case "tool_use":
+					// Generate ID if missing
+					id := block.ID
+					if id == "" {
+						id = generateToolCallID()
+					}
+					// Skip tool calls without a function name
+					if block.Name == "" {
+						continue
+					}
 					inputJSON, _ := json.Marshal(block.Input)
+					if inputJSON == nil || string(inputJSON) == "null" {
+						inputJSON = []byte("{}")
+					}
 					toolCalls = append(toolCalls, map[string]interface{}{
-						"id": block.ID, "type": "function",
+						"id":   id,
+						"type": "function",
 						"function": map[string]interface{}{
-							"name": block.Name, "arguments": string(inputJSON),
+							"name":      block.Name,
+							"arguments": string(inputJSON),
 						},
 					})
+					toolCallIDsInMsg = append(toolCallIDsInMsg, id)
 				case "tool_result":
+					// Skip tool results with missing tool_call_id
+					if block.ToolUseID == "" {
+						continue
+					}
+					// Skip orphaned tool results (no matching tool_call in any assistant message)
+					if !validToolCallIDs[block.ToolUseID] {
+						continue
+					}
 					resultContent := ""
 					switch v := block.Content.(type) {
 					case string:
@@ -606,13 +693,22 @@ func (p *CopilotProvider) convertMessages(messages []Message) []map[string]inter
 
 			if len(textParts) > 0 {
 				msgMap["content"] = strings.Join(textParts, "\n")
+				hasContent = true
 			}
 			if len(toolCalls) > 0 {
 				msgMap["tool_calls"] = toolCalls
+				hasContent = true
+				// Copilot API: use null content when assistant message has only tool_calls
+				if _, ok := msgMap["content"]; !ok {
+					msgMap["content"] = nil
+				}
 			}
 		}
 
-		result = append(result, msgMap)
+		// Only append msgMap if it has meaningful content (not just {"role": "..."})
+		if hasContent {
+			result = append(result, msgMap)
+		}
 	}
 
 	return result

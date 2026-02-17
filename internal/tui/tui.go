@@ -17,7 +17,9 @@ import (
 	"github.com/yourusername/dcode/internal/config"
 	"github.com/yourusername/dcode/internal/provider"
 	"github.com/yourusername/dcode/internal/session"
+	"github.com/yourusername/dcode/internal/theme"
 	"github.com/yourusername/dcode/internal/tool"
+	"github.com/yourusername/dcode/internal/tui/components"
 )
 
 // ─── Views ──────────────────────────────────────────────────────────────────────
@@ -183,6 +185,7 @@ func allCommands() []Command {
 		{ID: "agent.cycle", Title: "Cycle Agent (Tab/Shift+Tab)", Category: "Agent", Keybind: "Tab", Slash: "/agent"},
 		{ID: "session.new", Title: "New Session", Category: "Session", Keybind: "Ctrl+N", Slash: "/new"},
 		{ID: "session.list", Title: "List Sessions", Category: "Session", Keybind: "Ctrl+L"},
+		{ID: "theme.change", Title: "Change Theme", Category: "General", Slash: "/theme"},
 		{ID: "settings.open", Title: "Settings", Category: "General", Keybind: "Ctrl+S"},
 		{ID: "help", Title: "Help", Category: "General", Slash: "/help"},
 		{ID: "compact", Title: "Compact Session", Category: "Session", Slash: "/compact"},
@@ -202,19 +205,30 @@ type Model struct {
 	textarea textarea.Model
 	spinner  spinner.Model
 
+	// Enhanced TUI components
+	syntaxHighlighter *components.SyntaxHighlighter
+	markdownRenderer  *components.MarkdownRenderer
+	diffViewer        *components.DiffViewer
+	themeRegistry     *theme.Registry
+	currentTheme      *theme.Theme
+
 	// State
-	view         View
-	previousView View
-	width        int
-	height       int
-	sessionID    string
-	messages     []session.Message
+	view          View
+	previousView  View
+	width         int
+	height        int
+	sessionID     string
+	messages      []session.Message
 	streamingText *strings.Builder
 	isStreaming   bool
-	currentTool  string
-	statusMsg    string
-	statusExpiry time.Time
-	focusInput   bool // true = textarea focused, false = viewport focused
+	currentTool   string
+	statusMsg     string
+	statusExpiry  time.Time
+	focusInput    bool // true = textarea focused, false = viewport focused
+
+	// Provider initialization state
+	providerInitializing bool
+	providerInitError    error
 
 	// Dialog state
 	dialogSelected  int
@@ -258,26 +272,61 @@ func New(store *session.Store, engine *session.PromptEngine, cfg *config.Config,
 	vp := viewport.New(80, 20)
 	vp.SetContent("")
 
+	// Initialize theme system
+	themeRegistry := theme.NewRegistry()
+	themeName := "catppuccin-mocha" // default
+	if cfg.Theme != "" {
+		themeName = cfg.Theme
+	}
+	_ = themeRegistry.SetCurrent(themeName)
+	currentTheme := themeRegistry.Current()
+
+	// Initialize enhanced components with theme
+	syntaxHighlighter := components.NewSyntaxHighlighter(currentTheme.SyntaxTheme)
+	markdownRenderer, _ := components.NewMarkdownRenderer(80, currentTheme.MarkdownTheme)
+	diffViewer := components.NewDiffViewer(100, currentTheme.SyntaxTheme)
+
 	return Model{
-		viewport:      vp,
-		textarea:      ta,
-		spinner:       sp,
-		view:          ViewChat,
-		focusInput:    true,
-		streamingText: &strings.Builder{},
-		Agent:         agentName,
-		Model_:        modelName,
-		Provider:      prov,
-		Store:         store,
-		Engine:        engine,
-		Config:        cfg,
+		viewport:          vp,
+		textarea:          ta,
+		spinner:           sp,
+		view:              ViewChat,
+		focusInput:        true,
+		streamingText:     &strings.Builder{},
+		Agent:             agentName,
+		Model_:            modelName,
+		Provider:          prov,
+		Store:             store,
+		Engine:            engine,
+		Config:            cfg,
+		syntaxHighlighter: syntaxHighlighter,
+		markdownRenderer:  markdownRenderer,
+		diffViewer:        diffViewer,
+		themeRegistry:     themeRegistry,
+		currentTheme:      currentTheme,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		textarea.Blink,
 		m.spinner.Tick,
+	}
+	// Initialize provider asynchronously so the TUI renders immediately
+	if m.Engine == nil {
+		cmds = append(cmds, m.initEngineAsync())
+	}
+	return tea.Batch(cmds...)
+}
+
+// ProviderInitStartMsg signals that async provider initialization has started
+type ProviderInitStartMsg struct{}
+
+// initEngineAsync starts provider init and first sends a message to set the flag on the real model
+func (m *Model) initEngineAsync() tea.Cmd {
+	return tea.Batch(
+		func() tea.Msg { return ProviderInitStartMsg{} },
+		m.reinitEngine(),
 	)
 }
 
@@ -295,6 +344,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Width = msg.Width
 		m.viewport.Height = msg.Height - 8
 		m.textarea.SetWidth(msg.Width - 4)
+
+		// Update component widths
+		if m.markdownRenderer != nil {
+			m.markdownRenderer.SetWidth(msg.Width - 4)
+		}
+
+		// Keep spinner ticking if provider is still initializing
+		if m.providerInitializing {
+			return m, m.spinner.Tick
+		}
+		return m, nil
+
+	case tea.MouseMsg:
+		// Handle mouse events
+		switch msg.Type {
+		case tea.MouseWheelUp:
+			// Scroll up in viewport
+			if m.view == ViewChat && !m.focusInput {
+				m.viewport.LineUp(3)
+			}
+		case tea.MouseWheelDown:
+			// Scroll down in viewport
+			if m.view == ViewChat && !m.focusInput {
+				m.viewport.LineDown(3)
+			}
+		case tea.MouseLeft:
+			// Click to focus
+			if m.view == ViewChat {
+				// Determine if click is in viewport or textarea area
+				// Textarea is at the bottom (height - 3 to height)
+				if msg.Y < m.height-4 {
+					// Click in viewport area - focus viewport
+					m.focusInput = false
+					m.textarea.Blur()
+				} else {
+					// Click in textarea area - focus textarea
+					m.focusInput = true
+					m.textarea.Focus()
+				}
+			}
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -340,10 +430,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ErrorMsg:
 		m.isStreaming = false
-		m.setStatus("Error: " + msg.Error.Error())
+		// If this is a provider init error, store it and make it permanent
+		if m.providerInitializing {
+			m.providerInitializing = false
+			m.providerInitError = msg.Error
+			m.statusMsg = "Error: " + msg.Error.Error()
+			m.statusExpiry = time.Time{} // Never expire
+		} else {
+			m.setStatus("Error: " + msg.Error.Error())
+		}
+		return m, nil
+
+	case ProviderInitStartMsg:
+		m.providerInitializing = true
 		return m, nil
 
 	case ProviderChangedMsg:
+		m.providerInitializing = false
+		m.providerInitError = nil
 		m.Provider = msg.Provider
 		m.Model_ = msg.Model
 		m.setStatus(fmt.Sprintf("Switched to %s / %s", msg.Provider, msg.Model))
@@ -521,12 +625,26 @@ func (m *Model) buildProviderList() []ProviderInfo {
 		set[p] = true
 	}
 	all := []ProviderInfo{
-		{Name: "anthropic", DisplayName: "Anthropic Claude", Description: "Claude Sonnet 4, Opus 4, Haiku"},
-		{Name: "openai", DisplayName: "OpenAI", Description: "GPT-4.1, GPT-4o"},
-		{Name: "copilot", DisplayName: "GitHub Copilot", Description: "GPT-4 via GitHub"},
-		{Name: "google", DisplayName: "Google Gemini", Description: "Gemini 2.5 Flash/Pro"},
-		{Name: "groq", DisplayName: "Groq", Description: "Llama 3.3 70B (fast)"},
+		{Name: "anthropic", DisplayName: "Anthropic", Description: "Claude Opus 4.6, Sonnet 4.5, Opus 4.5, Haiku 4.5"},
+		{Name: "openai", DisplayName: "OpenAI", Description: "GPT-5.2, GPT-5.1, o3, o4-mini"},
+		{Name: "copilot", DisplayName: "GitHub Copilot", Description: "Claude, GPT-5, Gemini via GitHub"},
+		{Name: "google", DisplayName: "Google Gemini", Description: "Gemini 3 Flash/Pro, 2.5 Pro/Flash"},
+		{Name: "xai", DisplayName: "xAI", Description: "Grok 4, Grok 3, Grok Code"},
+		{Name: "groq", DisplayName: "Groq", Description: "Llama, Qwen, Kimi (ultra-fast)"},
 		{Name: "openrouter", DisplayName: "OpenRouter", Description: "Multi-provider gateway"},
+		{Name: "deepseek", DisplayName: "DeepSeek", Description: "DeepSeek Chat, Reasoner"},
+		{Name: "mistral", DisplayName: "Mistral", Description: "Devstral, Magistral, Codestral"},
+		{Name: "bedrock", DisplayName: "Amazon Bedrock", Description: "Claude, Llama via AWS"},
+		{Name: "deepinfra", DisplayName: "DeepInfra", Description: "GLM, Kimi, DeepSeek, GPT-OSS"},
+		{Name: "cerebras", DisplayName: "Cerebras", Description: "Qwen, GPT-OSS, GLM (fast)"},
+		{Name: "google-vertex", DisplayName: "Google Vertex AI", Description: "Gemini models via GCP"},
+		{Name: "gitlab", DisplayName: "GitLab Duo", Description: "Claude, GPT via GitLab"},
+		{Name: "cloudflare-workers-ai", DisplayName: "Cloudflare Workers AI", Description: "GPT-OSS, Llama, Qwen on Edge"},
+		{Name: "together", DisplayName: "Together AI", Description: "Open models (fast inference)"},
+		{Name: "azure", DisplayName: "Azure OpenAI", Description: "OpenAI models via Azure"},
+		{Name: "sambanova", DisplayName: "SambaNova", Description: "Llama, DeepSeek (fast)"},
+		{Name: "fireworks", DisplayName: "Fireworks AI", Description: "Llama, Qwen, Mixtral"},
+		{Name: "huggingface", DisplayName: "Hugging Face", Description: "Open models via Inference API"},
 	}
 	for i := range all {
 		all[i].Connected = set[all[i].Name]
@@ -541,17 +659,18 @@ func (m Model) onProviderSelect() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	sel := m.providerList[m.dialogSelected]
-	if sel.Connected {
-		m.Provider = sel.Name
-		m.Model_ = m.Config.GetDefaultModel(sel.Name)
-		m.view = m.previousView
-		m.focusTextarea()
-		m.setStatus("Provider: " + sel.DisplayName)
-		return m, m.reinitEngine()
-	}
-	m.setStatus("Not connected. Run: dcode login")
+	m.Provider = sel.Name
+	m.Model_ = m.Config.GetDefaultModel(sel.Name)
 	m.view = m.previousView
 	m.focusTextarea()
+	// Show connection status in the status message
+	connStatus := ""
+	if sel.Connected {
+		connStatus = " (connected)"
+	} else {
+		connStatus = " (not connected)"
+	}
+	m.setStatus("Provider: " + sel.DisplayName + connStatus)
 	return m, nil
 }
 
@@ -648,7 +767,7 @@ func (m Model) updateModelDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.dialogFilter = ""
 			m.focusTextarea()
 			m.setStatus(fmt.Sprintf("Model: %s (%s)", sel.Name, sel.Provider))
-			return m, m.reinitEngine()
+			return m, nil
 		}
 		return m, nil
 	case "backspace":
@@ -1003,7 +1122,7 @@ func (m Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		if len(parts) > 1 {
 			m.Model_ = strings.Join(parts[1:], " ")
 			m.setStatus("Model: " + m.Model_)
-			return m, m.reinitEngine()
+			return m, nil
 		}
 		return m.openModelDialog()
 	case "/provider":
@@ -1011,7 +1130,7 @@ func (m Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.Provider = parts[1]
 			m.Model_ = m.Config.GetDefaultModel(m.Provider)
 			m.setStatus("Provider: " + m.Provider)
-			return m, m.reinitEngine()
+			return m, nil
 		}
 		return m.openProviderDialog()
 	case "/agent":
@@ -1059,6 +1178,26 @@ func (m Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			case "new":
 				return m, m.createSession()
 			}
+		}
+		return m, nil
+	case "/theme":
+		if len(parts) > 1 {
+			themeName := parts[1]
+			err := m.themeRegistry.SetCurrent(themeName)
+			if err != nil {
+				m.setStatus("Theme not found: " + themeName)
+			} else {
+				m.currentTheme = m.themeRegistry.Current()
+				// Update components with new theme
+				m.syntaxHighlighter = components.NewSyntaxHighlighter(m.currentTheme.SyntaxTheme)
+				m.markdownRenderer, _ = components.NewMarkdownRenderer(m.width-4, m.currentTheme.MarkdownTheme)
+				m.diffViewer = components.NewDiffViewer(m.width, m.currentTheme.SyntaxTheme)
+				m.setStatus("Theme changed to: " + themeName)
+			}
+		} else {
+			// List available themes
+			themes := m.themeRegistry.List()
+			m.setStatus("Available themes: " + strings.Join(themes, ", "))
 		}
 		return m, nil
 	default:
@@ -1173,21 +1312,30 @@ var (
 
 func (m *Model) renderChat() string {
 	if m.width == 0 {
-		return ""
+		// Show a minimal loading screen before WindowSizeMsg arrives
+		return lipgloss.NewStyle().Bold(true).Foreground(purple).Render(" DCode ") +
+			"  " + m.spinner.View() + " Starting...\n"
 	}
 
 	var b strings.Builder
 
 	// ── Header: left-aligned info ──
-	headerLeft := lipgloss.JoinHorizontal(lipgloss.Center,
-		titleStyle.Render(" DCode "),
-		" ",
-		providerBadge.Render(m.Provider),
-		" ",
-		modelBadge.Render(shortModel(m.Model_)),
-		" ",
-		agentBadge.Render(m.Agent),
-	)
+	headerParts := []string{titleStyle.Render(" DCode ")}
+
+	if m.providerInitializing {
+		headerParts = append(headerParts, " ", m.spinner.View()+" "+dimStyle.Render("Connecting to "+m.Provider+"..."))
+	} else {
+		headerParts = append(headerParts,
+			" ",
+			providerBadge.Render(m.Provider),
+			" ",
+			modelBadge.Render(shortModel(m.Model_)),
+			" ",
+			agentBadge.Render(m.Agent),
+		)
+	}
+
+	headerLeft := lipgloss.JoinHorizontal(lipgloss.Center, headerParts...)
 
 	if s := m.getStatus(); s != "" {
 		headerLeft += "  " + dimStyle.Render(s)
@@ -1197,6 +1345,18 @@ func (m *Model) renderChat() string {
 	b.WriteString(dimStyle.Render(strings.Repeat("─", m.width)) + "\n")
 
 	// ── Messages viewport ──
+	if len(m.messages) == 0 && !m.isStreaming {
+		// Show welcome message when chat is empty
+		welcome := "\n"
+		welcome += lipgloss.NewStyle().Foreground(purple).Bold(true).Render("  Welcome to DCode") + "\n\n"
+		welcome += dimStyle.Render("  Type a message below and press Enter to start.") + "\n"
+		welcome += dimStyle.Render("  Use / for commands, Ctrl+K for model selection.") + "\n"
+		if m.providerInitError != nil {
+			welcome += "\n" + errorStyle.Render("  "+m.providerInitError.Error()) + "\n"
+			welcome += dimStyle.Render("  Run `dcode auth login` to set up authentication.") + "\n"
+		}
+		m.viewport.SetContent(welcome)
+	}
 	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
 
@@ -1549,6 +1709,9 @@ func (m *Model) renderHelpView() string {
 	builtins := agent.BuiltinAgents()
 	for _, name := range agentNames() {
 		a := builtins[name]
+		if a == nil {
+			continue
+		}
 		marker := "  "
 		if name == m.Agent {
 			marker = "▸ "
@@ -1705,10 +1868,47 @@ func (m *Model) renderUserMessage(b *strings.Builder, msg session.Message, idx i
 }
 
 func (m *Model) renderAssistantMessage(b *strings.Builder, msg session.Message, width int) {
-	// Render text content with left border
+	// Render text content with markdown and syntax highlighting
 	if msg.Content != "" {
+		rendered := msg.Content
+
+		// Enhanced markdown rendering with syntax highlighting
+		if m.markdownRenderer != nil && m.syntaxHighlighter != nil {
+			// First, highlight code blocks using syntax highlighter
+			codeBlocks := components.FindCodeBlocks(msg.Content)
+			if len(codeBlocks) > 0 {
+				// Replace code blocks with highlighted versions
+				processedContent := msg.Content
+				for i := len(codeBlocks) - 1; i >= 0; i-- {
+					block := codeBlocks[i]
+					highlighted := m.syntaxHighlighter.Highlight(block.Code, block.Language)
+
+					// Create styled code block
+					codeStyle := lipgloss.NewStyle().
+						Border(lipgloss.RoundedBorder()).
+						BorderForeground(overlay).
+						Padding(1, 2).
+						Foreground(txtClr)
+
+					styledCode := codeStyle.Render(highlighted)
+
+					// Replace original code block
+					original := "```" + block.Language + "\n" + block.Code + "\n```"
+					processedContent = strings.Replace(processedContent, original, "\n"+styledCode+"\n", 1)
+				}
+				rendered = processedContent
+			} else if strings.Contains(msg.Content, "#") || strings.Contains(msg.Content, "*") ||
+				strings.Contains(msg.Content, "-") || strings.Contains(msg.Content, ">") {
+				// Render as markdown if it has markdown syntax
+				renderedMd, err := m.markdownRenderer.Render(msg.Content)
+				if err == nil {
+					rendered = renderedMd
+				}
+			}
+		}
+
 		bordered := assistantBorderStyle.Width(width).Render(
-			assistantMsgStyle.Render(msg.Content),
+			assistantMsgStyle.Render(rendered),
 		)
 		b.WriteString("\n" + bordered + "\n")
 	}
@@ -1777,6 +1977,42 @@ func (m *Model) createSession() tea.Cmd {
 }
 
 func (m *Model) sendMessage(input string) tea.Cmd {
+	// Initialize engine if not already done
+	if m.Engine == nil {
+		if m.providerInitializing {
+			m.setStatus("Provider initializing, please wait...")
+			return nil
+		}
+		if m.providerInitError != nil {
+			// Keep the existing error message visible
+			return nil
+		}
+		// Try to initialize the engine now
+		m.providerInitializing = true
+		m.providerInitError = nil
+		apiKey, keyErr := config.GetAPIKeyWithFallback(m.Provider, m.Config)
+		if keyErr != nil {
+			err := fmt.Errorf("no API key for %s: %w. Run: dcode login", m.Provider, keyErr)
+			m.providerInitError = err
+			m.providerInitializing = false
+			m.setStatus(err.Error())
+			return nil
+		}
+		prov, err := provider.CreateProvider(m.Provider, apiKey)
+		if err != nil {
+			err = fmt.Errorf("failed to create provider %s: %w", m.Provider, err)
+			m.providerInitError = err
+			m.providerInitializing = false
+			m.setStatus(err.Error())
+			return nil
+		}
+		ag := agent.GetAgent(m.Agent, m.Config)
+		registry := tool.GetRegistry()
+		m.Engine = session.NewPromptEngine(m.Store, prov, m.Config, ag, registry)
+		m.providerInitializing = false
+		m.providerInitError = nil
+	}
+
 	m.isStreaming = true
 	m.streamingText.Reset()
 

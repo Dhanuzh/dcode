@@ -27,14 +27,52 @@ func (p *OpenAIProvider) Name() string { return "openai" }
 
 func (p *OpenAIProvider) Models() []string {
 	return []string{
+		// GPT-5.x series
+		"gpt-5.3-codex",
+		"gpt-5.3-codex-spark",
+		"gpt-5.2-codex",
+		"gpt-5.2",
+		"gpt-5.2-pro",
+		"gpt-5.2-chat-latest",
+		"gpt-5.1-codex-max",
+		"gpt-5.1-codex",
+		"gpt-5.1-codex-mini",
+		"gpt-5.1",
+		"gpt-5.1-chat-latest",
+		"gpt-5-codex",
+		"gpt-5",
+		"gpt-5-pro",
+		"gpt-5-mini",
+		"gpt-5-nano",
+		"gpt-5-chat-latest",
+		"codex-mini-latest",
+		// GPT-4.x series
 		"gpt-4.1",
 		"gpt-4.1-mini",
 		"gpt-4.1-nano",
 		"gpt-4o",
 		"gpt-4o-mini",
+		"gpt-4o-2024-11-20",
+		"gpt-4o-2024-08-06",
+		"gpt-4o-2024-05-13",
+		"gpt-4-turbo",
+		"gpt-4",
+		"gpt-3.5-turbo",
+		// o-series reasoning
 		"o3",
 		"o3-mini",
+		"o3-pro",
+		"o3-deep-research",
 		"o4-mini",
+		"o4-mini-deep-research",
+		"o1",
+		"o1-pro",
+		"o1-preview",
+		"o1-mini",
+		// Embeddings
+		"text-embedding-3-large",
+		"text-embedding-3-small",
+		"text-embedding-ada-002",
 	}
 }
 
@@ -99,13 +137,20 @@ func (p *OpenAIProvider) StreamMessage(ctx context.Context, req *MessageRequest,
 			// Emit any accumulated tool calls
 			if accumulatedToolCalls != nil {
 				for _, tc := range accumulatedToolCalls {
+					id := tc.ID
+					if id == "" {
+						id = generateToolCallID()
+					}
+					if tc.Function.Name == "" {
+						continue
+					}
 					var input map[string]interface{}
 					json.Unmarshal([]byte(tc.Function.Arguments), &input)
 					callback(&StreamChunk{
 						Type: "content_block_start",
 						ContentBlock: &ContentBlock{
 							Type:  "tool_use",
-							ID:    tc.ID,
+							ID:    id,
 							Name:  tc.Function.Name,
 							Input: input,
 						},
@@ -188,9 +233,21 @@ func (p *OpenAIProvider) convertMessages(req *MessageRequest) []openai.ChatCompl
 				case "text":
 					textParts = append(textParts, block.Text)
 				case "tool_use":
+					// Generate ID if missing
+					id := block.ID
+					if id == "" {
+						id = generateToolCallID()
+					}
+					// Skip tool calls without a function name
+					if block.Name == "" {
+						continue
+					}
 					inputJSON, _ := json.Marshal(block.Input)
+					if inputJSON == nil || string(inputJSON) == "null" {
+						inputJSON = []byte("{}")
+					}
 					toolCalls = append(toolCalls, openai.ToolCall{
-						ID:   block.ID,
+						ID:   id,
 						Type: openai.ToolTypeFunction,
 						Function: openai.FunctionCall{
 							Name:      block.Name,
@@ -198,6 +255,10 @@ func (p *OpenAIProvider) convertMessages(req *MessageRequest) []openai.ChatCompl
 						},
 					})
 				case "tool_result":
+					// Skip tool results with missing tool_call_id
+					if block.ToolUseID == "" {
+						continue
+					}
 					resultContent := ""
 					switch v := block.Content.(type) {
 					case string:
@@ -271,11 +332,18 @@ func (p *OpenAIProvider) convertResponse(resp *openai.ChatCompletionResponse) *M
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
+		id := tc.ID
+		if id == "" {
+			id = generateToolCallID()
+		}
+		if tc.Function.Name == "" {
+			continue
+		}
 		var input map[string]interface{}
 		json.Unmarshal([]byte(tc.Function.Arguments), &input)
 		content = append(content, ContentBlock{
 			Type:  "tool_use",
-			ID:    tc.ID,
+			ID:    id,
 			Name:  tc.Function.Name,
 			Input: input,
 		})

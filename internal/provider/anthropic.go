@@ -31,12 +31,28 @@ func (p *AnthropicProvider) Name() string { return "anthropic" }
 
 func (p *AnthropicProvider) Models() []string {
 	return []string{
-		"claude-sonnet-4-20250514",
+		"claude-opus-4-6",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4-5-20250929",
+		"claude-opus-4-5",
+		"claude-opus-4-5-20251101",
+		"claude-opus-4-1",
+		"claude-opus-4-1-20250805",
+		"claude-opus-4-0",
 		"claude-opus-4-20250514",
-		"claude-haiku-4-20250414",
+		"claude-sonnet-4-0",
+		"claude-sonnet-4-20250514",
+		"claude-haiku-4-5",
+		"claude-haiku-4-5-20251001",
+		"claude-3-7-sonnet-latest",
 		"claude-3-7-sonnet-20250219",
-		"claude-3-5-haiku-20241022",
 		"claude-3-5-sonnet-20241022",
+		"claude-3-5-sonnet-20240620",
+		"claude-3-5-haiku-latest",
+		"claude-3-5-haiku-20241022",
+		"claude-3-opus-20240229",
+		"claude-3-sonnet-20240229",
+		"claude-3-haiku-20240307",
 	}
 }
 
@@ -198,8 +214,8 @@ func (p *AnthropicProvider) StreamMessage(ctx context.Context, req *MessageReque
 		}
 
 		var event struct {
-			Type         string `json:"type"`
-			Index        int    `json:"index"`
+			Type         string           `json:"type"`
+			Index        int              `json:"index"`
 			Message      *json.RawMessage `json:"message,omitempty"`
 			ContentBlock *json.RawMessage `json:"content_block,omitempty"`
 			Delta        *json.RawMessage `json:"delta,omitempty"`

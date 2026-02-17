@@ -3,6 +3,11 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
+	"regexp"
+	"strings"
+	"time"
 )
 
 // Provider defines the interface for AI providers
@@ -11,6 +16,202 @@ type Provider interface {
 	CreateMessage(ctx context.Context, req *MessageRequest) (*MessageResponse, error)
 	StreamMessage(ctx context.Context, req *MessageRequest, callback func(*StreamChunk) error) error
 	Models() []string
+}
+
+// ProviderError types for error classification
+type ErrorType string
+
+const (
+	ErrorTypeContextOverflow ErrorType = "context_overflow"
+	ErrorTypeAPIError        ErrorType = "api_error"
+	ErrorTypeRateLimit       ErrorType = "rate_limit"
+	ErrorTypeAuth            ErrorType = "auth_error"
+	ErrorTypeNotFound        ErrorType = "not_found"
+	ErrorTypeTimeout         ErrorType = "timeout"
+)
+
+// ClassifiedError wraps a provider error with classification
+type ClassifiedError struct {
+	Type        ErrorType
+	Message     string
+	StatusCode  int
+	IsRetryable bool
+	RetryAfter  time.Duration
+	Original    error
+}
+
+func (e *ClassifiedError) Error() string {
+	return e.Message
+}
+
+func (e *ClassifiedError) Unwrap() error {
+	return e.Original
+}
+
+// Context overflow detection patterns from various providers
+var overflowPatterns = []*regexp.Regexp{
+	// Anthropic
+	regexp.MustCompile(`prompt is too long`),
+	regexp.MustCompile(`exceeds the model'?s maximum context`),
+	regexp.MustCompile(`content exceeds model token limit`),
+	// OpenAI
+	regexp.MustCompile(`maximum context length`),
+	regexp.MustCompile(`context_length_exceeded`),
+	regexp.MustCompile(`max_tokens.*exceeds.*limit`),
+	// Google
+	regexp.MustCompile(`exceeds the maximum number of tokens`),
+	regexp.MustCompile(`RESOURCE_EXHAUSTED.*token`),
+	regexp.MustCompile(`GenerateContentRequest.*too large`),
+	// Bedrock
+	regexp.MustCompile(`Input is too long`),
+	regexp.MustCompile(`Too many input tokens`),
+	// xAI / Groq
+	regexp.MustCompile(`Request too large`),
+	regexp.MustCompile(`Please reduce the length`),
+	// OpenRouter
+	regexp.MustCompile(`context_length_exceeded`),
+	// Generic
+	regexp.MustCompile(`(?i)context.*(?:too long|overflow|exceeded|limit)`),
+	regexp.MustCompile(`(?i)token.*(?:limit|exceeded|maximum)`),
+	// Cerebras / Mistral empty body
+	regexp.MustCompile(`(?:400|413)\s*\(no body\)`),
+	// llama.cpp / LM Studio
+	regexp.MustCompile(`context size exceeded`),
+	// MiniMax / Kimi
+	regexp.MustCompile(`(?i)token count.*exceeds`),
+}
+
+// IsContextOverflow checks if an error message indicates context overflow
+func IsContextOverflow(msg string) bool {
+	for _, pat := range overflowPatterns {
+		if pat.MatchString(msg) {
+			return true
+		}
+	}
+	return false
+}
+
+// ClassifyError classifies an error from a provider
+func ClassifyError(err error, statusCode int, responseBody string) *ClassifiedError {
+	if err == nil {
+		return nil
+	}
+
+	msg := err.Error()
+	if responseBody != "" {
+		msg = msg + " " + responseBody
+	}
+
+	// Check for context overflow
+	if IsContextOverflow(msg) {
+		return &ClassifiedError{
+			Type:        ErrorTypeContextOverflow,
+			Message:     "Context window exceeded. Consider compacting the conversation.",
+			StatusCode:  statusCode,
+			IsRetryable: false,
+			Original:    err,
+		}
+	}
+
+	// Rate limiting
+	if statusCode == 429 || strings.Contains(strings.ToLower(msg), "rate_limit") ||
+		strings.Contains(strings.ToLower(msg), "too_many_requests") ||
+		strings.Contains(strings.ToLower(msg), "quota") {
+		return &ClassifiedError{
+			Type:        ErrorTypeRateLimit,
+			Message:     "Rate limited by provider. Retrying...",
+			StatusCode:  statusCode,
+			IsRetryable: true,
+			Original:    err,
+		}
+	}
+
+	// Auth errors
+	if statusCode == 401 || statusCode == 403 {
+		return &ClassifiedError{
+			Type:        ErrorTypeAuth,
+			Message:     fmt.Sprintf("Authentication error (%d): %s", statusCode, err.Error()),
+			StatusCode:  statusCode,
+			IsRetryable: false,
+			Original:    err,
+		}
+	}
+
+	// Not found (sometimes retryable for OpenAI)
+	if statusCode == 404 {
+		return &ClassifiedError{
+			Type:        ErrorTypeNotFound,
+			Message:     fmt.Sprintf("Model or endpoint not found: %s", err.Error()),
+			StatusCode:  statusCode,
+			IsRetryable: true, // OpenAI sometimes returns 404 for valid models
+			Original:    err,
+		}
+	}
+
+	// Server errors are retryable
+	if statusCode >= 500 {
+		return &ClassifiedError{
+			Type:        ErrorTypeAPIError,
+			Message:     fmt.Sprintf("Provider server error (%d): %s", statusCode, err.Error()),
+			StatusCode:  statusCode,
+			IsRetryable: true,
+			Original:    err,
+		}
+	}
+
+	// Check for overloaded / exhausted
+	lowerMsg := strings.ToLower(msg)
+	if strings.Contains(lowerMsg, "overloaded") || strings.Contains(lowerMsg, "exhausted") ||
+		strings.Contains(lowerMsg, "unavailable") {
+		return &ClassifiedError{
+			Type:        ErrorTypeAPIError,
+			Message:     "Provider is overloaded. Retrying...",
+			StatusCode:  statusCode,
+			IsRetryable: true,
+			Original:    err,
+		}
+	}
+
+	// Default: non-retryable API error
+	return &ClassifiedError{
+		Type:        ErrorTypeAPIError,
+		Message:     err.Error(),
+		StatusCode:  statusCode,
+		IsRetryable: false,
+		Original:    err,
+	}
+}
+
+// RetryConfig holds retry configuration
+type RetryConfig struct {
+	InitialDelay  time.Duration
+	MaxDelay      time.Duration
+	BackoffFactor float64
+	MaxAttempts   int
+}
+
+// DefaultRetryConfig returns the default retry configuration
+func DefaultRetryConfig() RetryConfig {
+	return RetryConfig{
+		InitialDelay:  2 * time.Second,
+		MaxDelay:      30 * time.Second,
+		BackoffFactor: 2.0,
+		MaxAttempts:   5,
+	}
+}
+
+// ComputeRetryDelay computes the retry delay for a given attempt
+func ComputeRetryDelay(attempt int, cfg RetryConfig, retryAfter time.Duration) time.Duration {
+	// If server provided retry-after, use it
+	if retryAfter > 0 {
+		return retryAfter
+	}
+	// Exponential backoff
+	delay := time.Duration(float64(cfg.InitialDelay) * math.Pow(cfg.BackoffFactor, float64(attempt-1)))
+	if delay > cfg.MaxDelay {
+		delay = cfg.MaxDelay
+	}
+	return delay
 }
 
 // Message represents a conversation message
@@ -145,6 +346,34 @@ func CreateProvider(name, apiKey string) (Provider, error) {
 		return NewGroqProvider(apiKey), nil
 	case "openrouter":
 		return NewOpenRouterProvider(apiKey), nil
+	case "mistral":
+		return NewMistralProvider(apiKey), nil
+	case "cohere":
+		return NewCohereProvider(apiKey), nil
+	case "together":
+		return NewTogetherProvider(apiKey), nil
+	case "replicate":
+		return NewReplicateProvider(apiKey), nil
+	case "perplexity":
+		return NewPerplexityProvider(apiKey), nil
+	case "deepseek":
+		return NewDeepSeekProvider(apiKey), nil
+	case "azure":
+		return NewAzureOpenAIProvider(apiKey, ""), nil
+	case "bedrock":
+		return NewBedrockProvider("us-east-1"), nil
+	case "xai":
+		return NewXAIProvider(apiKey), nil
+	case "deepinfra":
+		return NewDeepInfraProvider(apiKey), nil
+	case "cerebras":
+		return NewCerebrasProvider(apiKey), nil
+	case "google-vertex":
+		return NewGoogleVertexProvider(apiKey), nil
+	case "gitlab":
+		return NewGitLabProvider(apiKey), nil
+	case "cloudflare-workers-ai":
+		return NewCloudflareWorkersAIProvider(apiKey), nil
 	default:
 		return NewOpenAICompatibleProvider(name, apiKey, ""), nil
 	}

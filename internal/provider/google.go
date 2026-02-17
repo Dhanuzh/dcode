@@ -30,11 +30,38 @@ func (p *GoogleProvider) Name() string { return "google" }
 
 func (p *GoogleProvider) Models() []string {
 	return []string{
+		// Gemini 3.x
+		"gemini-3-flash-preview",
+		"gemini-3-pro-preview",
+		// Gemini 2.5
 		"gemini-2.5-pro",
+		"gemini-2.5-pro-preview-06-05",
+		"gemini-2.5-pro-preview-05-06",
+		"gemini-2.5-pro-preview-tts",
 		"gemini-2.5-flash",
+		"gemini-2.5-flash-lite",
+		"gemini-2.5-flash-preview-09-2025",
+		"gemini-2.5-flash-preview-05-20",
+		"gemini-2.5-flash-preview-04-17",
+		"gemini-2.5-flash-lite-preview-09-2025",
+		"gemini-2.5-flash-lite-preview-06-17",
+		"gemini-2.5-flash-image",
+		"gemini-2.5-flash-image-preview",
+		"gemini-2.5-flash-preview-tts",
+		// Gemini 2.0
 		"gemini-2.0-flash",
 		"gemini-2.0-flash-lite",
+		// Gemini 1.5
 		"gemini-1.5-pro",
+		"gemini-1.5-flash",
+		"gemini-1.5-flash-8b",
+		// Aliases
+		"gemini-flash-latest",
+		"gemini-flash-lite-latest",
+		// Live / Embedding
+		"gemini-live-2.5-flash",
+		"gemini-live-2.5-flash-preview-native-audio",
+		"gemini-embedding-001",
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 func EditTool() *ToolDef {
 	return &ToolDef{
 		Name:        "edit",
-		Description: "Perform an exact string replacement in a file. The oldString must match exactly (including whitespace and indentation). Always read the file first to get the exact content. Include enough context lines for a unique match.",
+		Description: "Perform a string replacement in a file. Uses fuzzy matching with 9 fallback strategies to handle indentation differences, whitespace issues, and escape sequence problems. Always read the file first to understand its content. Include enough context lines for a unique match.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -23,11 +23,15 @@ func EditTool() *ToolDef {
 				},
 				"old_string": map[string]interface{}{
 					"type":        "string",
-					"description": "The exact string to find and replace. Must match precisely including whitespace.",
+					"description": "The string to find and replace. Fuzzy matching will handle minor whitespace and indentation differences.",
 				},
 				"new_string": map[string]interface{}{
 					"type":        "string",
 					"description": "The replacement string",
+				},
+				"replace_all": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Replace all occurrences instead of just the first unique match. Default: false",
 				},
 			},
 			"required": []string{"path", "old_string", "new_string"},
@@ -36,6 +40,7 @@ func EditTool() *ToolDef {
 			path, _ := input["path"].(string)
 			oldString, _ := input["old_string"].(string)
 			newString, _ := input["new_string"].(string)
+			replaceAll, _ := input["replace_all"].(bool)
 
 			if path == "" || oldString == "" {
 				return &ToolResult{Output: "Error: path and old_string are required", IsError: true}, nil
@@ -52,23 +57,14 @@ func EditTool() *ToolDef {
 
 			content := string(data)
 
-			// Count occurrences
-			count := strings.Count(content, oldString)
-			if count == 0 {
-				// Try to find similar text for helpful error
+			// Use fuzzy replacement with 9 fallback strategies
+			newContent, err := FuzzyReplace(content, oldString, newString, replaceAll)
+			if err != nil {
 				return &ToolResult{
-					Output:  fmt.Sprintf("Error: old_string not found in %s. Make sure the string matches exactly, including whitespace and indentation. Read the file first to get the exact content.", path),
+					Output:  fmt.Sprintf("Error in %s: %v", path, err),
 					IsError: true,
 				}, nil
 			}
-			if count > 1 {
-				return &ToolResult{
-					Output:  fmt.Sprintf("Error: old_string matches %d locations in %s. Include more context lines to make the match unique.", count, path),
-					IsError: true,
-				}, nil
-			}
-
-			newContent := strings.Replace(content, oldString, newString, 1)
 
 			if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
 				return &ToolResult{Output: fmt.Sprintf("Error writing file: %v", err), IsError: true}, nil
@@ -151,16 +147,12 @@ func MultiEditTool() *ToolDef {
 			errors := []string{}
 
 			for i, edit := range edits {
-				count := strings.Count(content, edit.OldString)
-				if count == 0 {
-					errors = append(errors, fmt.Sprintf("Edit %d: old_string not found", i+1))
+				newContent, err := FuzzyReplace(content, edit.OldString, edit.NewString, false)
+				if err != nil {
+					errors = append(errors, fmt.Sprintf("Edit %d: %v", i+1, err))
 					continue
 				}
-				if count > 1 {
-					errors = append(errors, fmt.Sprintf("Edit %d: old_string matches %d locations", i+1, count))
-					continue
-				}
-				content = strings.Replace(content, edit.OldString, edit.NewString, 1)
+				content = newContent
 				applied++
 			}
 
