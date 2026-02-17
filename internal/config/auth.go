@@ -329,28 +329,228 @@ func saveDefaultProvider(providerName string) error {
 	return os.WriteFile(configPath, []byte(existing), 0644)
 }
 
-// Logout removes stored credentials
+// getConfiguredProviders returns a list of provider names that have stored credentials
+func getConfiguredProviders(creds *Credentials) []struct {
+	key  string
+	name string
+} {
+	type entry struct {
+		key  string
+		name string
+		val  string
+	}
+
+	entries := []entry{
+		{"anthropic", "Anthropic Claude", creds.AnthropicAPIKey},
+		{"openai", "OpenAI GPT", creds.OpenAIAPIKey},
+		{"copilot", "GitHub Copilot", creds.GitHubToken},
+		{"google", "Google Gemini", creds.GoogleAPIKey},
+		{"groq", "Groq", creds.GroqAPIKey},
+		{"openrouter", "OpenRouter", creds.OpenRouterKey},
+		{"xai", "xAI (Grok)", creds.XAIAPIKey},
+		{"deepseek", "DeepSeek", creds.DeepSeekAPIKey},
+		{"mistral", "Mistral AI", creds.MistralAPIKey},
+		{"deepinfra", "DeepInfra", creds.DeepInfraAPIKey},
+		{"cerebras", "Cerebras", creds.CerebrasAPIKey},
+		{"together", "Together AI", creds.TogetherAPIKey},
+		{"cohere", "Cohere", creds.CohereAPIKey},
+		{"perplexity", "Perplexity AI", creds.PerplexityAPIKey},
+		{"replicate", "Replicate", creds.ReplicateAPIToken},
+		{"azure", "Azure OpenAI", creds.AzureAPIKey},
+		{"gitlab", "GitLab AI", creds.GitLabToken},
+		{"cloudflare-workers-ai", "Cloudflare Workers AI", creds.CloudflareAPIToken},
+	}
+
+	var configured []struct {
+		key  string
+		name string
+	}
+	for _, e := range entries {
+		if e.val != "" {
+			configured = append(configured, struct {
+				key  string
+				name string
+			}{e.key, e.name})
+		}
+	}
+
+	// Check for OAuth tokens
+	for key := range creds.OAuthTokens {
+		configured = append(configured, struct {
+			key  string
+			name string
+		}{key, key + " (OAuth)"})
+	}
+
+	// Check for Copilot OAuth token file
+	hasCopilotOAuth := false
+	if home, err := os.UserHomeDir(); err == nil {
+		path := filepath.Join(home, ".config", "dcode", "copilot_oauth.json")
+		if _, err := os.Stat(path); err == nil {
+			hasCopilotOAuth = true
+		}
+	}
+	// Add copilot-oauth entry only if copilot isn't already listed
+	if hasCopilotOAuth {
+		found := false
+		for _, c := range configured {
+			if c.key == "copilot" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			configured = append(configured, struct {
+				key  string
+				name string
+			}{"copilot", "GitHub Copilot (OAuth)"})
+		}
+	}
+
+	return configured
+}
+
+// clearProviderCredential clears the credential for a specific provider
+func clearProviderCredential(creds *Credentials, providerKey string) {
+	switch providerKey {
+	case "anthropic":
+		creds.AnthropicAPIKey = ""
+	case "openai":
+		creds.OpenAIAPIKey = ""
+	case "copilot":
+		creds.GitHubToken = ""
+	case "google":
+		creds.GoogleAPIKey = ""
+	case "groq":
+		creds.GroqAPIKey = ""
+	case "openrouter":
+		creds.OpenRouterKey = ""
+	case "xai":
+		creds.XAIAPIKey = ""
+	case "deepseek":
+		creds.DeepSeekAPIKey = ""
+	case "mistral":
+		creds.MistralAPIKey = ""
+	case "deepinfra":
+		creds.DeepInfraAPIKey = ""
+	case "cerebras":
+		creds.CerebrasAPIKey = ""
+	case "together":
+		creds.TogetherAPIKey = ""
+	case "cohere":
+		creds.CohereAPIKey = ""
+	case "perplexity":
+		creds.PerplexityAPIKey = ""
+	case "replicate":
+		creds.ReplicateAPIToken = ""
+	case "azure":
+		creds.AzureAPIKey = ""
+	case "gitlab":
+		creds.GitLabToken = ""
+	case "cloudflare-workers-ai":
+		creds.CloudflareAPIToken = ""
+	}
+
+	// Also remove from OAuth tokens if present
+	if creds.OAuthTokens != nil {
+		delete(creds.OAuthTokens, providerKey)
+	}
+}
+
+// removeCopilotOAuthToken removes the Copilot OAuth token file
+func removeCopilotOAuthToken() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	path := filepath.Join(home, ".config", "dcode", "copilot_oauth.json")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// Logout removes stored credentials for a selected provider or all providers
 func Logout() error {
 	cyan := "\033[36m"
 	green := "\033[32m"
 	yellow := "\033[33m"
+	gray := "\033[90m"
 	reset := "\033[0m"
+	bold := "\033[1m"
 
-	path, err := GetCredentialsPath()
+	fmt.Println()
+	fmt.Println(cyan + bold + "╭────────────────────────────────────────────╮" + reset)
+	fmt.Println(cyan + bold + "│       🔓 DCode Logout                     │" + reset)
+	fmt.Println(cyan + bold + "╰────────────────────────────────────────────╯" + reset)
+	fmt.Println()
+
+	creds, err := LoadCredentials()
 	if err != nil {
-		return err
+		creds = &Credentials{}
 	}
 
-	if err := os.Remove(path); err != nil {
-		if os.IsNotExist(err) {
-			fmt.Println(yellow + "ℹ No credentials found to remove" + reset)
-			return nil
+	configured := getConfiguredProviders(creds)
+	if len(configured) == 0 {
+		fmt.Println(yellow + "ℹ No credentials found to remove" + reset)
+		return nil
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println(yellow + "Select provider to logout from:" + reset)
+	for i, p := range configured {
+		fmt.Printf(cyan+"  %d"+reset+gray+" > "+reset+"%s\n", i+1, p.name)
+	}
+	fmt.Printf(cyan+"  %d"+reset+gray+" > "+reset+bold+"All providers"+reset+"\n", len(configured)+1)
+	fmt.Println()
+	fmt.Printf(yellow+"Enter choice [1-%d]: "+reset, len(configured)+1)
+
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	choice := 0
+	if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(configured)+1 {
+		fmt.Println(yellow + "ℹ Invalid choice, aborting" + reset)
+		return nil
+	}
+
+	if choice == len(configured)+1 {
+		// Remove all: delete credentials file and copilot OAuth token
+		path, err := GetCredentialsPath()
+		if err != nil {
+			return err
 		}
-		return err
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := removeCopilotOAuthToken(); err != nil {
+			fmt.Println(yellow + "⚠ Could not remove Copilot OAuth token: " + err.Error() + reset)
+		}
+		fmt.Println()
+		fmt.Println(green + "✓ All credentials removed successfully" + reset)
+		fmt.Println(cyan + "Run " + yellow + "dcode login" + cyan + " to configure new credentials" + reset)
+		fmt.Println()
+		return nil
+	}
+
+	// Remove a specific provider
+	selected := configured[choice-1]
+	clearProviderCredential(creds, selected.key)
+
+	// If copilot was selected, also remove the OAuth token file
+	if selected.key == "copilot" {
+		if err := removeCopilotOAuthToken(); err != nil {
+			fmt.Println(yellow + "⚠ Could not remove Copilot OAuth token: " + err.Error() + reset)
+		}
+	}
+
+	if err := SaveCredentials(creds); err != nil {
+		return fmt.Errorf("failed to save credentials: %w", err)
 	}
 
 	fmt.Println()
-	fmt.Println(green + "✓ Credentials removed successfully" + reset)
+	fmt.Println(green + "✓ " + selected.name + " credentials removed successfully" + reset)
 	fmt.Println(cyan + "Run " + yellow + "dcode login" + cyan + " to configure new credentials" + reset)
 	fmt.Println()
 	return nil
