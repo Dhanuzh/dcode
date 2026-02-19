@@ -97,6 +97,11 @@ func ClassifyError(err error, statusCode int, responseBody string) *ClassifiedEr
 		return nil
 	}
 
+	// If already classified, return as-is
+	if ce, ok := err.(*ClassifiedError); ok {
+		return ce
+	}
+
 	msg := err.Error()
 	if responseBody != "" {
 		msg = msg + " " + responseBody

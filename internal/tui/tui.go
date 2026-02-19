@@ -2,11 +2,13 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -150,6 +152,22 @@ type ProviderChangedMsg struct {
 	Model    string
 }
 
+// ─── Streaming display types ────────────────────────────────────────────────────
+
+// streamingToolCall tracks a tool call during streaming
+type streamingToolCall struct {
+	Name   string
+	Detail string
+	Active bool
+}
+
+// retryDisplayInfo tracks retry state during streaming
+type retryDisplayInfo struct {
+	Attempt int
+	Message string
+	NextAt  time.Time
+}
+
 // ─── Types for dialogs ──────────────────────────────────────────────────────────
 
 // ProviderInfo holds display data for the provider selection dialog
@@ -219,9 +237,12 @@ type Model struct {
 	height        int
 	sessionID     string
 	messages      []session.Message
-	streamingText *strings.Builder
-	isStreaming   bool
-	currentTool   string
+	streamingText     *strings.Builder
+	streamingThinking *strings.Builder
+	streamingTools    []streamingToolCall
+	retryInfo         *retryDisplayInfo
+	isStreaming        bool
+	currentTool        string
 	statusMsg     string
 	statusExpiry  time.Time
 	focusInput    bool // true = textarea focused, false = viewport focused
@@ -254,6 +275,10 @@ type Model struct {
 	// Streaming
 	streamCh chan tea.Msg
 	cancel   context.CancelFunc
+
+	// Token tracking and loading states
+	tokenTracker *TokenUsageTracker
+	loadingState LoadingState
 }
 
 // New creates a new TUI model (opencode-style)
@@ -286,13 +311,23 @@ func New(store *session.Store, engine *session.PromptEngine, cfg *config.Config,
 	markdownRenderer, _ := components.NewMarkdownRenderer(80, currentTheme.MarkdownTheme)
 	diffViewer := components.NewDiffViewer(100, currentTheme.SyntaxTheme)
 
+	// Get context window size for token tracking
+	maxTokens := 200000 // Default
+	if cfg.MaxTokens > 0 {
+		maxTokens = cfg.MaxTokens
+	}
+	tokenTracker := NewTokenUsageTracker(maxTokens)
+
 	return Model{
 		viewport:          vp,
 		textarea:          ta,
 		spinner:           sp,
 		view:              ViewChat,
 		focusInput:        true,
-		streamingText:     &strings.Builder{},
+		streamingText:      &strings.Builder{},
+		streamingThinking:  &strings.Builder{},
+		streamingTools:     nil,
+		retryInfo:          nil,
 		Agent:             agentName,
 		Model_:            modelName,
 		Provider:          prov,
@@ -304,6 +339,8 @@ func New(store *session.Store, engine *session.PromptEngine, cfg *config.Config,
 		diffViewer:        diffViewer,
 		themeRegistry:     themeRegistry,
 		currentTheme:      currentTheme,
+		tokenTracker:      tokenTracker,
+		loadingState:      LoadingState{IsActive: false},
 	}
 }
 
@@ -311,6 +348,7 @@ func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		textarea.Blink,
 		m.spinner.Tick,
+		tea.EnableMouseAllMotion, // Enable mouse support for scrolling and selection
 	}
 	// Initialize provider asynchronously so the TUI renders immediately
 	if m.Engine == nil {
@@ -392,6 +430,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+		// Global help shortcut
+		if msg.String() == "?" {
+			m.previousView = m.view
+			m.view = ViewHelp
+			m.blurTextarea()
+			return m, nil
+		}
 		// Dispatch to current view
 		switch m.view {
 		case ViewChat:
@@ -410,7 +455,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDialog(msg, len(m.settingsItems()), m.onSettingsSelect)
 		case ViewHelp:
 			if msg.String() == "esc" || msg.String() == "q" {
-				m.view = ViewChat
+				m.view = m.previousView
 				m.focusTextarea()
 			}
 			return m, nil
@@ -430,6 +475,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ErrorMsg:
 		m.isStreaming = false
+		m.streamingThinking.Reset()
+		m.streamingTools = nil
+		m.retryInfo = nil
 		// If this is a provider init error, store it and make it permanent
 		if m.providerInitializing {
 			m.providerInitializing = false
@@ -504,6 +552,9 @@ func (m Model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focusTextarea()
 		}
 		return m, nil
+	case "ctrl+y":
+		// Copy last assistant message to clipboard
+		return m.copyLastMessage()
 	case "ctrl+k":
 		m.blurTextarea()
 		return m.openModelDialog()
@@ -522,6 +573,15 @@ func (m Model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = ViewSessions
 		m.sessionList = m.Store.List()
 		m.selectedSession = 0
+		return m, nil
+	case "ctrl+shift+l":
+		// Clear screen (messages)
+		m.messages = []session.Message{}
+		if m.tokenTracker != nil {
+			m.tokenTracker.Reset()
+		}
+		m.updateViewport()
+		m.setStatus("Screen cleared")
 		return m, nil
 	case "ctrl+p":
 		m.blurTextarea()
@@ -556,6 +616,9 @@ func (m Model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.isStreaming = false
 			m.streamingText.Reset()
+			m.streamingThinking.Reset()
+			m.streamingTools = nil
+			m.retryInfo = nil
 			m.streamCh = nil
 			m.setStatus("Cancelled")
 			if m.sessionID != "" {
@@ -581,6 +644,54 @@ func (m Model) updateChat(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.textarea, cmd = m.textarea.Update(msg)
 		return m, cmd
 	}
+	return m, nil
+}
+
+// copyLastMessage copies the last assistant message to clipboard
+func (m Model) copyLastMessage() (tea.Model, tea.Cmd) {
+	// Find the last assistant message
+	var lastAssistantMsg *session.Message
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		if m.messages[i].Role == "assistant" {
+			lastAssistantMsg = &m.messages[i]
+			break
+		}
+	}
+	
+	if lastAssistantMsg == nil {
+		m.setStatus("No assistant message to copy")
+		return m, nil
+	}
+	
+	// Extract text content from message
+	content := lastAssistantMsg.Content
+	
+	// If content is empty, try to get from parts
+	if content == "" && len(lastAssistantMsg.Parts) > 0 {
+		var textParts []string
+		for _, part := range lastAssistantMsg.Parts {
+			if part.Type == "text" && part.Content != "" {
+				textParts = append(textParts, part.Content)
+			}
+		}
+		content = strings.Join(textParts, "\n")
+	}
+	
+	if content == "" {
+		m.setStatus("No text content to copy")
+		return m, nil
+	}
+	
+	// Copy to clipboard
+	err := clipboard.WriteAll(content)
+	if err != nil {
+		m.setStatus("Failed to copy: " + err.Error())
+		return m, nil
+	}
+	
+	// Show success message with character count
+	charCount := len(content)
+	m.setStatus(fmt.Sprintf("Copied %d characters to clipboard", charCount))
 	return m, nil
 }
 
@@ -1063,25 +1174,83 @@ func (m Model) handleStreamMsg(msg StreamMsg) (tea.Model, tea.Cmd) {
 	switch msg.Event.Type {
 	case "text":
 		m.streamingText.WriteString(msg.Event.Content)
+		m.SetLoadingState(LoadingGenerating, "Generating response", "")
 		m.updateViewport()
 	case "tool_start":
 		m.currentTool = msg.Event.ToolName
+		// Track the tool call for display
+		m.streamingTools = append(m.streamingTools, streamingToolCall{
+			Name:   msg.Event.ToolName,
+			Detail: msg.Event.Content,
+			Active: true,
+		})
+		m.SetLoadingState(LoadingToolExecution, "", msg.Event.ToolName)
 		m.updateViewport()
 	case "tool_end":
 		m.currentTool = ""
+		// Mark matching tool as completed
+		for i := len(m.streamingTools) - 1; i >= 0; i-- {
+			if m.streamingTools[i].Name == msg.Event.ToolName && m.streamingTools[i].Active {
+				m.streamingTools[i].Active = false
+				break
+			}
+		}
+		m.SetLoadingState(LoadingGenerating, "Generating response", "")
+		m.updateViewport()
 	case "thinking":
-		// Show thinking indicator
+		m.streamingThinking.WriteString(msg.Event.Content)
+		m.SetLoadingState(LoadingThinking, "Thinking", "")
+		m.updateViewport()
+	case "retry":
+		nextAt := time.Now().Add(30 * time.Second) // default
+		if msg.Event.NextAt > 0 {
+			nextAt = time.UnixMilli(msg.Event.NextAt)
+		}
+		m.retryInfo = &retryDisplayInfo{
+			Attempt: msg.Event.Attempt,
+			Message: msg.Event.Content,
+			NextAt:  nextAt,
+		}
+		retryMsg := fmt.Sprintf("Retrying (attempt %d)", msg.Event.Attempt)
+		if msg.Event.Content != "" {
+			retryMsg = msg.Event.Content
+		}
+		m.SetLoadingState(LoadingConnecting, retryMsg, "")
+		m.updateViewport()
 	case "error":
+		m.ClearLoadingState()
 		m.setStatus("Error: " + msg.Event.Content)
 	case "done":
 		m.isStreaming = false
 		m.streamingText.Reset()
+		m.streamingThinking.Reset()
+		m.streamingTools = nil
+		m.retryInfo = nil
+		m.ClearLoadingState()
+		
+		// Update token tracking from session
 		if m.sessionID != "" {
 			if sess, err := m.Store.Get(m.sessionID); err == nil {
 				m.messages = sess.Messages
+				
+				// Update token tracker with last message
+				if len(sess.Messages) > 0 {
+					lastMsg := sess.Messages[len(sess.Messages)-1]
+					if lastMsg.TokensIn > 0 || lastMsg.TokensOut > 0 {
+						m.tokenTracker.AddMessage(
+							lastMsg.ID,
+							lastMsg.TokensIn,
+							lastMsg.TokensOut,
+							lastMsg.Cost,
+						)
+					}
+				}
 			}
 		}
+		
 		m.updateViewport()
+		// Auto-scroll to bottom
+		m.viewport.GotoBottom()
 		return m, nil
 	}
 	if m.streamCh != nil {
@@ -1093,12 +1262,34 @@ func (m Model) handleStreamMsg(msg StreamMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleDoneMsg() (tea.Model, tea.Cmd) {
 	m.isStreaming = false
 	m.streamingText.Reset()
+	m.streamingThinking.Reset()
+	m.streamingTools = nil
+	m.retryInfo = nil
+	m.ClearLoadingState()
+	
+	// Update messages and token tracking
 	if m.sessionID != "" {
 		if sess, err := m.Store.Get(m.sessionID); err == nil {
 			m.messages = sess.Messages
+			
+			// Update token tracker with last message
+			if len(sess.Messages) > 0 {
+				lastMsg := sess.Messages[len(sess.Messages)-1]
+				if lastMsg.TokensIn > 0 || lastMsg.TokensOut > 0 {
+					m.tokenTracker.AddMessage(
+						lastMsg.ID,
+						lastMsg.TokensIn,
+						lastMsg.TokensOut,
+						lastMsg.Cost,
+					)
+				}
+			}
 		}
 	}
+	
 	m.updateViewport()
+	// Auto-scroll to bottom
+	m.viewport.GotoBottom()
 	return m, nil
 }
 
@@ -1167,6 +1358,29 @@ func (m Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			}
 			m.setStatus(strings.Join(lines, " | "))
 		}
+		return m, nil
+	case "/tokens", "/usage":
+		// Show detailed token usage
+		if m.tokenTracker == nil {
+			m.setStatus("No token tracking available")
+			return m, nil
+		}
+		
+		// Display detailed usage in viewport
+		detailsView := m.RenderDetailedTokenUsage()
+		m.viewport.SetContent(detailsView)
+		m.setStatus("Press Esc to return to chat")
+		return m, nil
+	case "/cost":
+		// Show cost information
+		if m.tokenTracker == nil || m.tokenTracker.TotalCost == 0 {
+			m.setStatus("No cost data available")
+			return m, nil
+		}
+		m.setStatus(fmt.Sprintf("Total cost: $%.4f (In: %s, Out: %s)",
+			m.tokenTracker.TotalCost,
+			formatTokens(m.tokenTracker.TotalTokensIn),
+			formatTokens(m.tokenTracker.TotalTokensOut)))
 		return m, nil
 	case "/session":
 		if len(parts) > 1 {
@@ -1335,6 +1549,15 @@ func (m *Model) renderChat() string {
 		)
 	}
 
+	// Add message count (always show)
+	msgCountStyle := lipgloss.NewStyle().Foreground(m.currentTheme.TextMuted)
+	headerParts = append(headerParts, " ", msgCountStyle.Render(fmt.Sprintf("[%d msgs]", len(m.messages))))
+
+	// Add token usage (always show, even if 0)
+	if m.tokenTracker != nil {
+		headerParts = append(headerParts, " ", m.RenderTokenUsage())
+	}
+
 	headerLeft := lipgloss.JoinHorizontal(lipgloss.Center, headerParts...)
 
 	if s := m.getStatus(); s != "" {
@@ -1351,22 +1574,29 @@ func (m *Model) renderChat() string {
 		welcome += lipgloss.NewStyle().Foreground(purple).Bold(true).Render("  Welcome to DCode") + "\n\n"
 		welcome += dimStyle.Render("  Type a message below and press Enter to start.") + "\n"
 		welcome += dimStyle.Render("  Use / for commands, Ctrl+K for model selection.") + "\n"
+		welcome += dimStyle.Render("  Press ? for help anytime.") + "\n"
 		if m.providerInitError != nil {
 			welcome += "\n" + errorStyle.Render("  "+m.providerInitError.Error()) + "\n"
 			welcome += dimStyle.Render("  Run `dcode auth login` to set up authentication.") + "\n"
 		}
 		m.viewport.SetContent(welcome)
 	}
-	b.WriteString(m.viewport.View())
+	
+	// Render viewport with scrollbar
+	viewportContent := m.RenderViewportWithScrollbar()
+	b.WriteString(viewportContent)
 	b.WriteString("\n")
 
-	// ── Streaming indicator ──
-	if m.isStreaming {
+	// ── Loading/Streaming indicator ──
+	if m.loadingState.IsActive {
+		b.WriteString(m.RenderLoadingState() + "\n")
+	} else if m.isStreaming {
+		// Fallback to simple streaming indicator
 		ind := m.spinner.View() + " "
 		if m.currentTool != "" {
 			ind += toolCallStyle.Render("⚡ " + m.currentTool)
 		} else {
-			ind += dimStyle.Render("Generating...")
+			ind += dimStyle.Render("Generating response...")
 		}
 		b.WriteString(ind + "\n")
 	}
@@ -1382,6 +1612,12 @@ func (m *Model) renderChat() string {
 		focusHint = keybindStyle.Render("[INPUT]") + " "
 	} else {
 		focusHint = dimStyle.Render("[SCROLL]") + " "
+	}
+	
+	// Add scroll indicator
+	scrollIndicator := m.GetScrollIndicator()
+	if scrollIndicator != "" {
+		focusHint += scrollIndicator + " "
 	}
 
 	foot := lipgloss.JoinHorizontal(lipgloss.Center,
@@ -1665,15 +1901,19 @@ func (m *Model) renderHelpView() string {
 
 	b.WriteString(highlightStyle.Render("  Keyboard Shortcuts") + "\n\n")
 	shortcuts := []struct{ key, desc string }{
+		{"?", "Show this help (works anywhere)"},
 		{"Enter", "Send message"},
 		{"Alt+Enter", "Insert newline"},
+		{"Tab", "Toggle focus (input/viewport)"},
+		{"Ctrl+Y", "Copy last assistant message"},
 		{"Ctrl+K", "Select model"},
 		{"Ctrl+J", "Cycle agent forward"},
 		{"Ctrl+P", "Select provider"},
 		{"Ctrl+N", "New session"},
 		{"Ctrl+L", "Toggle sessions"},
+		{"Ctrl+Shift+L", "Clear screen"},
 		{"Ctrl+Shift+P", "Command palette"},
-		{"Ctrl+,", "Settings"},
+		{"Ctrl+S", "Settings"},
 		{"Esc", "Cancel / Back"},
 		{"Ctrl+C", "Quit"},
 	}
@@ -1694,6 +1934,8 @@ func (m *Model) renderHelpView() string {
 		{"/compact", "Compact session (save context)"},
 		{"/export", "Export session as JSON"},
 		{"/todo", "Show current todos"},
+		{"/tokens or /usage", "Show detailed token usage"},
+		{"/cost", "Show cost information"},
 		{"/clear", "Clear screen"},
 		{"/help", "Show this help"},
 		{"/quit", "Exit DCode"},
@@ -1718,6 +1960,24 @@ func (m *Model) renderHelpView() string {
 		}
 		b.WriteString(fmt.Sprintf("%s%s  %s\n", marker, keybindStyle.Render(fmt.Sprintf("%-12s", name)), descStyle.Render(a.Description)))
 	}
+
+	b.WriteString("\n" + highlightStyle.Render("  Text Copying") + "\n\n")
+	b.WriteString(dimStyle.Render("  Due to terminal limitations with mouse capture:") + "\n\n")
+	copyFeatures := []struct{ feature, desc string }{
+		{"Ctrl+Y", "Copy last assistant message to clipboard"},
+		{"Shift+Mouse", "Select text (bypasses app, terminal-dependent)"},
+		{"Mouse Wheel", "Scroll messages up/down"},
+		{"Click", "Focus input or viewport"},
+		{"Scrollbar", "Visual indicator on right side"},
+	}
+	for _, f := range copyFeatures {
+		b.WriteString(fmt.Sprintf("  %s  %s\n",
+			keybindStyle.Render(fmt.Sprintf("%-15s", f.feature)),
+			descStyle.Render(f.desc),
+		))
+	}
+	b.WriteString("\n" + dimStyle.Render("  Note: Shift+Mouse selection works in most terminals (iTerm2,") + "\n")
+	b.WriteString(dimStyle.Render("  Windows Terminal, Alacritty). Use Ctrl+Y for quick copy.") + "\n")
 
 	b.WriteString("\n" + dimStyle.Render("Press Esc or Q to go back"))
 	return b.String()
@@ -1823,10 +2083,62 @@ func (m *Model) updateViewport() {
 	}
 
 	// Streaming content
-	if m.isStreaming && m.streamingText.Len() > 0 {
-		streamContent := m.streamingText.String() + dimStyle.Render("▊")
-		bordered := assistantBorderStyle.Width(contentWidth).Render(streamContent)
-		content.WriteString(bordered + "\n")
+	if m.isStreaming {
+		var streamContent strings.Builder
+
+		// 1. Show thinking block (dimmed, italic)
+		if m.streamingThinking.Len() > 0 {
+			thinkText := m.streamingThinking.String()
+			thinkStyle := lipgloss.NewStyle().Foreground(m.currentTheme.TextDim).Italic(true)
+			streamContent.WriteString(thinkStyle.Render("💭 Thinking...") + "\n")
+			// Truncate to last ~500 chars to avoid viewport bloat
+			if len(thinkText) > 500 {
+				thinkText = "..." + thinkText[len(thinkText)-497:]
+			}
+			streamContent.WriteString(thinkStyle.Render(thinkText) + "\n\n")
+		}
+
+		// 2. Show retry info
+		if m.retryInfo != nil {
+			retryStyle := lipgloss.NewStyle().Foreground(m.currentTheme.Warning)
+			remaining := time.Until(m.retryInfo.NextAt)
+			if remaining < 0 {
+				remaining = 0
+			}
+			retryMsg := m.retryInfo.Message
+			if retryMsg == "" {
+				retryMsg = "Retrying"
+			}
+			streamContent.WriteString(retryStyle.Render(
+				fmt.Sprintf("⟳ %s (attempt %d, retrying in %s)",
+					retryMsg, m.retryInfo.Attempt, formatDuration(remaining)),
+			) + "\n\n")
+		}
+
+		// 3. Show text content
+		if m.streamingText.Len() > 0 {
+			streamContent.WriteString(m.streamingText.String() + dimStyle.Render("▊"))
+		}
+
+		// 4. Show tool calls
+		for _, tc := range m.streamingTools {
+			icon, clr := getToolIcon(tc.Name)
+			iconStyled := lipgloss.NewStyle().Foreground(clr).Render(icon)
+			status := successStyle.Render("✓")
+			if tc.Active {
+				status = toolCallStyle.Render("⟳")
+			}
+			line := fmt.Sprintf("   %s %s %s", iconStyled, highlightStyle.Render(tc.Name), status)
+			if tc.Detail != "" {
+				line += " " + dimStyle.Render(tc.Detail)
+			}
+			streamContent.WriteString("\n" + line)
+		}
+
+		if streamContent.Len() > 0 {
+			bordered := assistantBorderStyle.Width(contentWidth).Render(streamContent.String())
+			content.WriteString(bordered + "\n")
+		}
 	}
 
 	m.viewport.SetContent(content.String())
@@ -1855,6 +2167,15 @@ func (m *Model) renderUserMessage(b *strings.Builder, msg session.Message, idx i
 			if part.Content != "" {
 				truncated := truncateOutput(part.Content, 8)
 				inner.WriteString("\n" + dimStyle.Render(truncated))
+			}
+
+			// Render side-by-side diff if available
+			if part.Metadata != nil && m.diffViewer != nil {
+				diffs := extractDiffDataFromMetadata(part.Metadata)
+				for _, dd := range diffs {
+					diffView := m.diffViewer.RenderEditDiff(dd.OldContent, dd.NewContent, dd.FilePath, 30)
+					inner.WriteString("\n" + diffView)
+				}
 			}
 		}
 	}
@@ -2015,6 +2336,9 @@ func (m *Model) sendMessage(input string) tea.Cmd {
 
 	m.isStreaming = true
 	m.streamingText.Reset()
+	m.streamingThinking.Reset()
+	m.streamingTools = nil
+	m.retryInfo = nil
 
 	m.messages = append(m.messages, session.Message{
 		Role:    "user",
@@ -2114,6 +2438,76 @@ func shortModel(model string) string {
 		return model[:27] + "..."
 	}
 	return model
+}
+
+// extractDiffDataFromMetadata extracts DiffData from part metadata,
+// handling both typed (in-memory) and JSON-deserialized forms.
+func extractDiffDataFromMetadata(metadata map[string]interface{}) []*tool.DiffData {
+	var result []*tool.DiffData
+
+	// Try single diff_data
+	if raw, ok := metadata["diff_data"]; ok {
+		if dd := convertToDiffData(raw); dd != nil {
+			result = append(result, dd)
+		}
+	}
+
+	// Try diff_data_list
+	if raw, ok := metadata["diff_data_list"]; ok {
+		switch v := raw.(type) {
+		case []*tool.DiffData:
+			result = append(result, v...)
+		case []interface{}:
+			for _, item := range v {
+				if dd := convertToDiffData(item); dd != nil {
+					result = append(result, dd)
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// convertToDiffData converts a value to *tool.DiffData, handling both
+// typed structs and map[string]interface{} from JSON deserialization.
+func convertToDiffData(raw interface{}) *tool.DiffData {
+	switch v := raw.(type) {
+	case *tool.DiffData:
+		return v
+	case tool.DiffData:
+		return &v
+	case map[string]interface{}:
+		dd := &tool.DiffData{}
+		if s, ok := v["old_content"].(string); ok {
+			dd.OldContent = s
+		}
+		if s, ok := v["new_content"].(string); ok {
+			dd.NewContent = s
+		}
+		if s, ok := v["file_path"].(string); ok {
+			dd.FilePath = s
+		}
+		if s, ok := v["language"].(string); ok {
+			dd.Language = s
+		}
+		if b, ok := v["is_fragment"].(bool); ok {
+			dd.IsFragment = b
+		}
+		if dd.OldContent != "" || dd.NewContent != "" {
+			return dd
+		}
+	default:
+		// Try JSON round-trip as last resort
+		data, err := json.Marshal(raw)
+		if err == nil {
+			var dd tool.DiffData
+			if json.Unmarshal(data, &dd) == nil && (dd.OldContent != "" || dd.NewContent != "") {
+				return &dd
+			}
+		}
+	}
+	return nil
 }
 
 func clampWidth(screenW, maxW int) int {

@@ -40,6 +40,7 @@ func ApplyPatchTool() *ToolDef {
 			}
 
 			var results []string
+			var diffList []*DiffData
 			applied := 0
 			failed := 0
 
@@ -62,6 +63,12 @@ func ApplyPatchTool() *ToolDef {
 						continue
 					}
 					results = append(results, fmt.Sprintf("Created: %s", section.path))
+					diffList = append(diffList, &DiffData{
+						OldContent: "",
+						NewContent: section.newContent,
+						FilePath:   filePath,
+						Language:   inferLanguage(filePath),
+					})
 					applied++
 				} else if section.isDelete {
 					if err := os.Remove(filePath); err != nil {
@@ -94,6 +101,12 @@ func ApplyPatchTool() *ToolDef {
 						continue
 					}
 					results = append(results, fmt.Sprintf("Modified: %s (%d changes)", section.path, len(section.changes)))
+					diffList = append(diffList, &DiffData{
+						OldContent: content,
+						NewContent: newContent,
+						FilePath:   filePath,
+						Language:   inferLanguage(filePath),
+					})
 					applied++
 				}
 			}
@@ -104,8 +117,9 @@ func ApplyPatchTool() *ToolDef {
 			}
 
 			return &ToolResult{
-				Output:  strings.Join(results, "\n") + summary,
-				IsError: failed > 0 && applied == 0,
+				Output:       strings.Join(results, "\n") + summary,
+				IsError:      failed > 0 && applied == 0,
+				DiffDataList: diffList,
 			}, nil
 		},
 	}

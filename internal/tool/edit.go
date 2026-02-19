@@ -74,7 +74,16 @@ func EditTool() *ToolDef {
 			oldLines := strings.Count(oldString, "\n") + 1
 			newLines := strings.Count(newString, "\n") + 1
 
-			return &ToolResult{Output: fmt.Sprintf("Edited %s: replaced %d lines with %d lines", path, oldLines, newLines)}, nil
+			return &ToolResult{
+				Output: fmt.Sprintf("Edited %s: replaced %d lines with %d lines", path, oldLines, newLines),
+				DiffData: &DiffData{
+					OldContent: oldString,
+					NewContent: newString,
+					FilePath:   path,
+					Language:   inferLanguage(path),
+					IsFragment: true,
+				},
+			}, nil
 		},
 	}
 }
@@ -145,6 +154,7 @@ func MultiEditTool() *ToolDef {
 			content := string(data)
 			applied := 0
 			errors := []string{}
+			var diffList []*DiffData
 
 			for i, edit := range edits {
 				newContent, err := FuzzyReplace(content, edit.OldString, edit.NewString, false)
@@ -152,6 +162,13 @@ func MultiEditTool() *ToolDef {
 					errors = append(errors, fmt.Sprintf("Edit %d: %v", i+1, err))
 					continue
 				}
+				diffList = append(diffList, &DiffData{
+					OldContent: edit.OldString,
+					NewContent: edit.NewString,
+					FilePath:   path,
+					Language:   inferLanguage(path),
+					IsFragment: true,
+				})
 				content = newContent
 				applied++
 			}
@@ -166,7 +183,11 @@ func MultiEditTool() *ToolDef {
 			if len(errors) > 0 {
 				result += "\nErrors:\n" + strings.Join(errors, "\n")
 			}
-			return &ToolResult{Output: result, IsError: len(errors) > 0 && applied == 0}, nil
+			return &ToolResult{
+				Output:       result,
+				IsError:      len(errors) > 0 && applied == 0,
+				DiffDataList: diffList,
+			}, nil
 		},
 	}
 }

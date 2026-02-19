@@ -46,10 +46,12 @@ func WriteTool() *ToolDef {
 				return &ToolResult{Output: fmt.Sprintf("Error creating directories: %v", err), IsError: true}, nil
 			}
 
-			// Check if file exists (for reporting)
+			// Check if file exists and read old content for diff
 			existed := false
-			if _, err := os.Stat(path); err == nil {
+			var oldContent string
+			if data, err := os.ReadFile(path); err == nil {
 				existed = true
+				oldContent = string(data)
 			}
 
 			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
@@ -62,7 +64,20 @@ func WriteTool() *ToolDef {
 				action = "Updated"
 			}
 
-			return &ToolResult{Output: fmt.Sprintf("%s %s (%d lines, %d bytes)", action, path, lines, len(content))}, nil
+			result := &ToolResult{Output: fmt.Sprintf("%s %s (%d lines, %d bytes)", action, path, lines, len(content))}
+
+			// Attach diff data for files that were updated (not newly created)
+			if existed {
+				result.DiffData = &DiffData{
+					OldContent: oldContent,
+					NewContent: content,
+					FilePath:   path,
+					Language:   inferLanguage(path),
+					IsFragment: false,
+				}
+			}
+
+			return result, nil
 		},
 	}
 }

@@ -3,15 +3,28 @@ package tool
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
+// DiffData holds before/after content for rendering side-by-side diffs
+type DiffData struct {
+	OldContent string `json:"old_content"`
+	NewContent string `json:"new_content"`
+	FilePath   string `json:"file_path,omitempty"`
+	Language   string `json:"language,omitempty"`
+	IsFragment bool   `json:"is_fragment,omitempty"` // true for edit (partial), false for write (full file)
+}
+
 // ToolResult represents the result of a tool execution
 type ToolResult struct {
-	Output      string           `json:"output"`
-	IsError     bool             `json:"is_error"`
-	Title       string           `json:"title,omitempty"`       // Optional title for tool output display
-	Attachments []FileAttachment `json:"attachments,omitempty"` // File attachments (images, PDFs)
+	Output       string           `json:"output"`
+	IsError      bool             `json:"is_error"`
+	Title        string           `json:"title,omitempty"`          // Optional title for tool output display
+	Attachments  []FileAttachment `json:"attachments,omitempty"`    // File attachments (images, PDFs)
+	DiffData     *DiffData        `json:"diff_data,omitempty"`      // Single diff (edit, write)
+	DiffDataList []*DiffData      `json:"diff_data_list,omitempty"` // Multiple diffs (multiedit, patch)
 }
 
 // FileAttachment represents a base64-encoded file attachment
@@ -147,6 +160,61 @@ type ProviderTool struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	InputSchema map[string]interface{} `json:"input_schema"`
+}
+
+// inferLanguage returns a language identifier based on file extension
+func inferLanguage(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	langs := map[string]string{
+		".go":    "go",
+		".js":    "javascript",
+		".ts":    "typescript",
+		".tsx":   "tsx",
+		".jsx":   "jsx",
+		".py":    "python",
+		".rb":    "ruby",
+		".rs":    "rust",
+		".java":  "java",
+		".c":     "c",
+		".cpp":   "cpp",
+		".h":     "c",
+		".hpp":   "cpp",
+		".cs":    "csharp",
+		".swift": "swift",
+		".kt":    "kotlin",
+		".lua":   "lua",
+		".sh":    "bash",
+		".bash":  "bash",
+		".zsh":   "zsh",
+		".fish":  "fish",
+		".yaml":  "yaml",
+		".yml":   "yaml",
+		".json":  "json",
+		".toml":  "toml",
+		".xml":   "xml",
+		".html":  "html",
+		".css":   "css",
+		".scss":  "scss",
+		".sql":   "sql",
+		".md":    "markdown",
+		".proto": "protobuf",
+		".tf":    "hcl",
+		".vim":   "vim",
+		".el":    "elisp",
+		".ex":    "elixir",
+		".exs":   "elixir",
+		".zig":   "zig",
+		".v":     "v",
+		".dart":  "dart",
+		".r":     "r",
+		".R":     "r",
+		".php":   "php",
+		".pl":    "perl",
+	}
+	if lang, ok := langs[ext]; ok {
+		return lang
+	}
+	return ""
 }
 
 // registerBuiltinTools registers all built-in tools

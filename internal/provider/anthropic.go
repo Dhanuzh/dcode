@@ -8,7 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"syscall"
+	"time"
+
+	"golang.org/x/term"
+
+	"github.com/Dhanuzh/dcode/internal/config"
 )
 
 // AnthropicProvider implements the Provider interface for Anthropic Claude
@@ -100,7 +107,7 @@ func (p *AnthropicProvider) CreateMessage(ctx context.Context, req *MessageReque
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error (%d): %s", resp.StatusCode, string(body))
+		return nil, p.parseAPIError(resp.StatusCode, body)
 	}
 
 	var apiResp struct {
@@ -195,7 +202,7 @@ func (p *AnthropicProvider) StreamMessage(ctx context.Context, req *MessageReque
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error (%d): %s", resp.StatusCode, string(body))
+		return p.parseAPIError(resp.StatusCode, body)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -261,6 +268,148 @@ func (p *AnthropicProvider) StreamMessage(ctx context.Context, req *MessageReque
 	return scanner.Err()
 }
 
+// AnthropicLogin performs an interactive login flow for Anthropic with API key validation.
+func AnthropicLogin() error {
+	cyan := "\033[36m"
+	green := "\033[32m"
+	yellow := "\033[33m"
+	gray := "\033[90m"
+	reset := "\033[0m"
+	bold := "\033[1m"
+	red := "\033[31m"
+
+	fmt.Println()
+	fmt.Println(cyan + bold + "╭──────────────────────────────────────────────╮" + reset)
+	fmt.Println(cyan + bold + "│       Anthropic Claude Authentication        │" + reset)
+	fmt.Println(cyan + bold + "╰──────────────────────────────────────────────╯" + reset)
+	fmt.Println()
+
+	keyURL := "https://console.anthropic.com/settings/keys"
+	fmt.Println(gray + "  Get your API key from: " + yellow + keyURL + reset)
+	fmt.Println()
+
+	// Try to open the browser (best-effort)
+	_ = config.OpenBrowser(keyURL)
+
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		fmt.Print(yellow + "  API Key" + reset + " " + gray + "(hidden, Enter to cancel): " + reset)
+		keyBytes, err := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println() // newline after hidden input
+		if err != nil {
+			return fmt.Errorf("failed to read API key: %w", err)
+		}
+
+		apiKey := strings.TrimSpace(string(keyBytes))
+		if apiKey == "" {
+			fmt.Println(gray + "  → Cancelled" + reset)
+			return nil
+		}
+
+		// Validate the key with a lightweight test request
+		fmt.Println(gray + "  Validating API key..." + reset)
+
+		valid, validationMsg := validateAnthropicKey(apiKey)
+
+		if !valid {
+			fmt.Println("  " + red + "✗ " + validationMsg + reset)
+			fmt.Println()
+			fmt.Print(yellow + "  Try again? [Y/n]: " + reset)
+			answer, _ := reader.ReadString('\n')
+			answer = strings.TrimSpace(strings.ToLower(answer))
+			if answer == "n" || answer == "no" {
+				return nil
+			}
+			continue
+		}
+
+		// Save credentials
+		creds, _ := config.LoadCredentials()
+		if creds == nil {
+			creds = &config.Credentials{}
+		}
+		creds.AnthropicAPIKey = apiKey
+
+		if err := config.SaveCredentials(creds); err != nil {
+			return fmt.Errorf("failed to save credentials: %w", err)
+		}
+
+		// Set as default provider
+		if err := config.SaveDefaultProvider("anthropic"); err != nil {
+			fmt.Println(yellow + "  ⚠ Could not save default provider: " + err.Error() + reset)
+		}
+
+		path, _ := config.GetCredentialsPath()
+		fmt.Println()
+		fmt.Println("  " + green + "✓ Anthropic API key validated and saved" + reset)
+		if validationMsg != "" {
+			fmt.Println("  " + gray + validationMsg + reset)
+		}
+		fmt.Println("  " + gray + path + reset)
+		fmt.Println()
+		fmt.Println("  " + yellow + "You can now run " + cyan + bold + "dcode" + reset + yellow + " to start coding!" + reset)
+		fmt.Println()
+		return nil
+	}
+}
+
+// validateAnthropicKey makes a minimal API call to check if the key is valid.
+// Returns (valid bool, message string).
+func validateAnthropicKey(apiKey string) (bool, string) {
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	// Use claude-3-5-haiku as the cheapest currently available model
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"model":      "claude-3-5-haiku-20241022",
+		"max_tokens": 1,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hi"},
+		},
+	})
+
+	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(reqBody))
+	if err != nil {
+		return false, "Failed to create validation request: " + err.Error()
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("User-Agent", "DCode/2.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// Network error — save anyway with a warning
+		return true, "Could not reach API to validate (network error), key saved anyway"
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, ""
+	case http.StatusUnauthorized:
+		// Parse error message from API
+		var apiErr struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		errMsg := "Invalid API key"
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error.Message != "" {
+			errMsg = apiErr.Error.Message
+		}
+		return false, errMsg
+	case http.StatusForbidden:
+		return false, "API key does not have permission (403 Forbidden)"
+	default:
+		// Other errors (rate limit, server error, etc.) — save the key anyway
+		return true, fmt.Sprintf("API returned status %d during validation, key saved anyway", resp.StatusCode)
+	}
+}
+
 func (p *AnthropicProvider) convertMessages(messages []Message) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(messages))
 	for i, msg := range messages {
@@ -306,6 +455,28 @@ func (p *AnthropicProvider) convertMessages(messages []Message) []map[string]int
 		result[i] = msgMap
 	}
 	return result
+}
+
+// parseAPIError parses an Anthropic API error response and returns a ClassifiedError
+func (p *AnthropicProvider) parseAPIError(statusCode int, body []byte) error {
+	// Try to parse Anthropic's structured error format:
+	// {"type":"error","error":{"type":"...","message":"..."}}
+	var apiErr struct {
+		Type  string `json:"type"`
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	errMsg := string(body)
+	if err := json.Unmarshal(body, &apiErr); err == nil && apiErr.Error.Message != "" {
+		errMsg = apiErr.Error.Message
+	}
+
+	rawErr := fmt.Errorf("%s", errMsg)
+
+	return ClassifyError(rawErr, statusCode, errMsg)
 }
 
 func (p *AnthropicProvider) convertTools(tools []Tool) []map[string]interface{} {

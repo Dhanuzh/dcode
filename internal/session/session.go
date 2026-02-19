@@ -123,6 +123,10 @@ type Store struct {
 	baseDir   string
 	sessions  map[string]*Session
 	statusMgr *StatusManager
+
+	// Lazy loading: sessions are loaded in background on startup
+	loadDone chan struct{}
+	loadErr  error
 }
 
 // NewStore creates a new session store
@@ -135,14 +139,22 @@ func NewStore(baseDir string) (*Store, error) {
 		baseDir:   baseDir,
 		sessions:  make(map[string]*Session),
 		statusMgr: NewStatusManager(),
+		loadDone:  make(chan struct{}),
 	}
 
-	// Load existing sessions
-	if err := store.loadAll(); err != nil {
-		return nil, err
-	}
+	// Load existing sessions in background so TUI renders immediately
+	go func() {
+		store.loadErr = store.loadAll()
+		close(store.loadDone)
+	}()
 
 	return store, nil
+}
+
+// ensureLoaded waits for background loading to complete.
+// This is called before any operation that reads from the sessions map.
+func (s *Store) ensureLoaded() {
+	<-s.loadDone
 }
 
 // StatusManager returns the status manager for this store
@@ -152,6 +164,7 @@ func (s *Store) StatusManager() *StatusManager {
 
 // Create creates a new session
 func (s *Store) Create(agent, model, provider string) (*Session, error) {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -179,6 +192,7 @@ func (s *Store) Create(agent, model, provider string) (*Session, error) {
 
 // Get retrieves a session by ID
 func (s *Store) Get(id string) (*Session, error) {
+	s.ensureLoaded()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -191,6 +205,7 @@ func (s *Store) Get(id string) (*Session, error) {
 
 // List returns all sessions sorted by updated time (newest first)
 func (s *Store) List() []*Session {
+	s.ensureLoaded()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -208,6 +223,7 @@ func (s *Store) List() []*Session {
 
 // AddMessage adds a message to a session
 func (s *Store) AddMessage(sessionID string, msg Message) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -239,6 +255,7 @@ func (s *Store) AddMessage(sessionID string, msg Message) error {
 
 // UpdateMessage updates an existing message in the session
 func (s *Store) UpdateMessage(sessionID, messageID string, updater func(*Message)) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -260,6 +277,7 @@ func (s *Store) UpdateMessage(sessionID, messageID string, updater func(*Message
 
 // UpdateTitle updates the session title
 func (s *Store) UpdateTitle(sessionID, title string) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -275,6 +293,7 @@ func (s *Store) UpdateTitle(sessionID, title string) error {
 
 // UpdateStatus updates the session status
 func (s *Store) UpdateStatus(sessionID, status string) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -289,6 +308,7 @@ func (s *Store) UpdateStatus(sessionID, status string) error {
 
 // SetRevert sets the revert state for a session
 func (s *Store) SetRevert(sessionID string, revert *RevertInfo) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -304,6 +324,7 @@ func (s *Store) SetRevert(sessionID string, revert *RevertInfo) error {
 
 // Revert reverts a session to a specific message, using snapshots to undo file changes
 func (s *Store) Revert(sessionID, messageID string, snapshot *Snapshot) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -371,6 +392,7 @@ func (s *Store) Revert(sessionID, messageID string, snapshot *Snapshot) error {
 
 // Unrevert undoes a revert, restoring the session to its pre-revert state
 func (s *Store) Unrevert(sessionID string, snapshot *Snapshot) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -397,6 +419,7 @@ func (s *Store) Unrevert(sessionID string, snapshot *Snapshot) error {
 
 // CleanupRevert removes messages after the revert point and clears the revert state
 func (s *Store) CleanupRevert(sessionID string) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -426,6 +449,7 @@ func (s *Store) CleanupRevert(sessionID string) error {
 
 // Fork creates a copy of a session at a specific message point
 func (s *Store) Fork(sessionID string, atMessageIdx int) (*Session, error) {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -471,6 +495,7 @@ func (s *Store) Fork(sessionID string, atMessageIdx int) (*Session, error) {
 
 // Delete removes a session
 func (s *Store) Delete(sessionID string) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -486,6 +511,7 @@ func (s *Store) Delete(sessionID string) error {
 
 // Export returns session data as JSON
 func (s *Store) Export(sessionID string) ([]byte, error) {
+	s.ensureLoaded()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -499,6 +525,7 @@ func (s *Store) Export(sessionID string) ([]byte, error) {
 
 // Import loads a session from JSON data
 func (s *Store) Import(data []byte) (*Session, error) {
+	s.ensureLoaded()
 	var session Session
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, fmt.Errorf("invalid session data: %w", err)
@@ -531,6 +558,7 @@ func (s *Store) GetLatest() *Session {
 
 // Compact performs token-based compaction using the pruning algorithm
 func (s *Store) Compact(sessionID string, keepLastN int) error {
+	s.ensureLoaded()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -547,6 +575,7 @@ func (s *Store) Compact(sessionID string, keepLastN int) error {
 
 // GetSessionCost calculates total session cost from messages
 func (s *Store) GetSessionCost(sessionID string) (float64, error) {
+	s.ensureLoaded()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -564,6 +593,7 @@ func (s *Store) GetSessionCost(sessionID string) (float64, error) {
 
 // GetSessionStats returns aggregate statistics for a session
 func (s *Store) GetSessionStats(sessionID string) (*Summary, error) {
+	s.ensureLoaded()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

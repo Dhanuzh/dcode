@@ -204,8 +204,18 @@ func (pe *PromptEngine) Run(ctx context.Context, sessionID, userMessage string) 
 		}
 
 		if err != nil {
-			// Check if retryable
-			retryMsg := IsRetryableError(err)
+			// Classify the error for better handling
+			classified := provider.ClassifyError(err, 0, "")
+
+			// Check if retryable (using both classification and pattern matching)
+			retryMsg := ""
+			if classified != nil && classified.IsRetryable {
+				retryMsg = classified.Message
+			}
+			if retryMsg == "" {
+				retryMsg = IsRetryableError(err)
+			}
+
 			if retryMsg != "" && retryAttempt < MaxRetryAttempts {
 				retryAttempt++
 				delay := ComputeRetryDelay(retryAttempt, nil)
@@ -233,8 +243,10 @@ func (pe *PromptEngine) Run(ctx context.Context, sessionID, userMessage string) 
 				continue // retry
 			}
 
-			pe.emit(StreamEvent{Type: "error", Content: err.Error()})
-			return fmt.Errorf("LLM error: %w", err)
+			// Make the error user-friendly
+			friendlyErr := provider.MakeUserFriendly(err, pe.provider.Name())
+			pe.emit(StreamEvent{Type: "error", Content: friendlyErr.Error()})
+			return friendlyErr
 		}
 
 		// Reset retry attempt on success
@@ -430,14 +442,42 @@ func (pe *PromptEngine) Run(ctx context.Context, sessionID, userMessage string) 
 					IsError: true,
 				})
 			} else {
-				toolResults = append(toolResults, Part{
+				resultPart := Part{
 					Type:     "tool_result",
 					ToolID:   part.ToolID,
 					ToolName: part.ToolName,
 					Content:  result.Output,
 					IsError:  result.IsError,
 					Title:    result.Title,
-				})
+				}
+
+				// Attach diff data to metadata for TUI rendering
+				if result.DiffData != nil {
+					// Cap at 10KB to prevent session bloat
+					if len(result.DiffData.OldContent)+len(result.DiffData.NewContent) <= 10240 {
+						resultPart.Metadata = map[string]interface{}{
+							"diff_data": result.DiffData,
+						}
+					}
+				} else if len(result.DiffDataList) > 0 {
+					// Filter to items under size cap
+					var capped []*tool.DiffData
+					totalSize := 0
+					for _, d := range result.DiffDataList {
+						size := len(d.OldContent) + len(d.NewContent)
+						if totalSize+size <= 10240 {
+							capped = append(capped, d)
+							totalSize += size
+						}
+					}
+					if len(capped) > 0 {
+						resultPart.Metadata = map[string]interface{}{
+							"diff_data_list": capped,
+						}
+					}
+				}
+
+				toolResults = append(toolResults, resultPart)
 			}
 
 			// Update summary

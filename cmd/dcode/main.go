@@ -99,6 +99,8 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	// Create and run TUI — provider is initialized asynchronously inside Init()
 	model := tui.New(store, nil, cfg, agentName, cfg.GetDefaultModel(cfg.Provider), cfg.Provider)
 
+	// Start with mouse support enabled
+	// Note: To select text with mouse, hold Shift while selecting (terminal-dependent)
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
@@ -342,15 +344,28 @@ func authCmd() *cobra.Command {
 		},
 	}
 
-	copilotCmd := &cobra.Command{
-		Use:   "copilot",
-		Short: "Authenticate with GitHub Copilot via OAuth device flow",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return provider.CopilotLogin()
-		},
+	// Generate per-provider auth subcommands from the shared registry
+	for _, p := range config.ProviderRegistry {
+		info := p // capture loop variable
+		provCmd := &cobra.Command{
+			Use:   info.Key,
+			Short: "Authenticate with " + info.Name,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				// Copilot uses OAuth device flow, not API key
+				if info.Key == "copilot" {
+					return provider.CopilotLogin()
+				}
+				// Anthropic uses validated login flow
+				if info.Key == "anthropic" {
+					return provider.AnthropicLogin()
+				}
+				return config.ProviderLogin(info.Key)
+			},
+		}
+		cmd.AddCommand(provCmd)
 	}
 
-	cmd.AddCommand(loginCmd, logoutCmd, listCmd, copilotCmd)
+	cmd.AddCommand(loginCmd, logoutCmd, listCmd)
 
 	// Default to login if no subcommand given
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {

@@ -31,6 +31,7 @@ func PatchTool() *ToolDef {
 
 			results := []string{}
 			errors := []string{}
+			var diffList []*DiffData
 
 			// Parse patch into file sections
 			sections := parsePatchSections(patch)
@@ -57,6 +58,12 @@ func PatchTool() *ToolDef {
 						errors = append(errors, fmt.Sprintf("Failed to create %s: %v", section.path, err))
 					} else {
 						results = append(results, fmt.Sprintf("Created %s", section.path))
+						diffList = append(diffList, &DiffData{
+							OldContent: "",
+							NewContent: section.newContent,
+							FilePath:   targetPath,
+							Language:   inferLanguage(targetPath),
+						})
 					}
 					continue
 				}
@@ -68,7 +75,8 @@ func PatchTool() *ToolDef {
 					continue
 				}
 
-				newContent, err := applyHunks(string(data), section.hunks)
+				oldContent := string(data)
+				newContent, err := applyHunks(oldContent, section.hunks)
 				if err != nil {
 					errors = append(errors, fmt.Sprintf("Failed to apply patch to %s: %v", section.path, err))
 					continue
@@ -78,6 +86,12 @@ func PatchTool() *ToolDef {
 					errors = append(errors, fmt.Sprintf("Failed to write %s: %v", section.path, err))
 				} else {
 					results = append(results, fmt.Sprintf("Patched %s", section.path))
+					diffList = append(diffList, &DiffData{
+						OldContent: oldContent,
+						NewContent: newContent,
+						FilePath:   targetPath,
+						Language:   inferLanguage(targetPath),
+					})
 				}
 			}
 
@@ -88,7 +102,11 @@ func PatchTool() *ToolDef {
 			if output == "" {
 				return &ToolResult{Output: "No changes applied", IsError: true}, nil
 			}
-			return &ToolResult{Output: output, IsError: len(errors) > 0 && len(results) == 0}, nil
+			return &ToolResult{
+				Output:       output,
+				IsError:      len(errors) > 0 && len(results) == 0,
+				DiffDataList: diffList,
+			}, nil
 		},
 	}
 }

@@ -8,12 +8,59 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/term"
 )
+
+// ProviderInfo describes a provider for auth purposes.
+type ProviderInfo struct {
+	Key     string // e.g. "anthropic"
+	Name    string // e.g. "Anthropic Claude"
+	URLHint string // API key page URL
+	EnvVar  string // primary env var name
+}
+
+// ProviderRegistry is the ordered list of all supported providers.
+// It is the single source of truth used by Login(), ProviderLogin(),
+// getConfiguredProviders(), and the CLI subcommand registration.
+var ProviderRegistry = []ProviderInfo{
+	{"anthropic", "Anthropic Claude", "https://console.anthropic.com/", "ANTHROPIC_API_KEY"},
+	{"openai", "OpenAI GPT", "https://platform.openai.com/api-keys", "OPENAI_API_KEY"},
+	{"copilot", "GitHub Copilot", "https://github.com/settings/tokens", "GITHUB_TOKEN"},
+	{"google", "Google Gemini", "https://aistudio.google.com/apikey", "GOOGLE_API_KEY"},
+	{"groq", "Groq", "https://console.groq.com/keys", "GROQ_API_KEY"},
+	{"openrouter", "OpenRouter", "https://openrouter.ai/keys", "OPENROUTER_API_KEY"},
+	{"xai", "xAI (Grok)", "https://console.x.ai/", "XAI_API_KEY"},
+	{"deepseek", "DeepSeek", "https://platform.deepseek.com/api_keys", "DEEPSEEK_API_KEY"},
+	{"mistral", "Mistral AI", "https://console.mistral.ai/api-keys", "MISTRAL_API_KEY"},
+	{"deepinfra", "DeepInfra", "https://deepinfra.com/dash/api_keys", "DEEPINFRA_API_KEY"},
+	{"cerebras", "Cerebras", "https://cloud.cerebras.ai/", "CEREBRAS_API_KEY"},
+	{"together", "Together AI", "https://api.together.xyz/settings/api-keys", "TOGETHER_API_KEY"},
+	{"cohere", "Cohere", "https://dashboard.cohere.com/api-keys", "COHERE_API_KEY"},
+	{"perplexity", "Perplexity AI", "https://www.perplexity.ai/settings/api", "PERPLEXITY_API_KEY"},
+	{"azure", "Azure OpenAI", "https://portal.azure.com/", "AZURE_OPENAI_API_KEY"},
+	{"gitlab", "GitLab AI", "https://gitlab.com/-/user_settings/personal_access_tokens", "GITLAB_TOKEN"},
+	{"cloudflare", "Cloudflare Workers AI", "https://dash.cloudflare.com/", "CLOUDFLARE_API_TOKEN"},
+	{"replicate", "Replicate", "https://replicate.com/account/api-tokens", "REPLICATE_API_TOKEN"},
+}
+
+// OpenBrowser opens the given URL in the user's default browser.
+func OpenBrowser(url string) error {
+	switch runtime.GOOS {
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform %s", runtime.GOOS)
+	}
+}
 
 // Credentials stores API keys securely - supports all providers
 type Credentials struct {
@@ -119,6 +166,121 @@ func readHiddenInput(prompt string) (string, error) {
 	}
 	fmt.Println()
 	return strings.TrimSpace(string(bytes)), nil
+}
+
+// setProviderKey sets the API key on the Credentials struct for the given provider key.
+func setProviderKey(creds *Credentials, providerKey, apiKey string) {
+	switch providerKey {
+	case "anthropic":
+		creds.AnthropicAPIKey = apiKey
+	case "openai":
+		creds.OpenAIAPIKey = apiKey
+	case "copilot":
+		creds.GitHubToken = apiKey
+	case "google":
+		creds.GoogleAPIKey = apiKey
+	case "groq":
+		creds.GroqAPIKey = apiKey
+	case "openrouter":
+		creds.OpenRouterKey = apiKey
+	case "xai":
+		creds.XAIAPIKey = apiKey
+	case "deepseek":
+		creds.DeepSeekAPIKey = apiKey
+	case "mistral":
+		creds.MistralAPIKey = apiKey
+	case "deepinfra":
+		creds.DeepInfraAPIKey = apiKey
+	case "cerebras":
+		creds.CerebrasAPIKey = apiKey
+	case "together":
+		creds.TogetherAPIKey = apiKey
+	case "cohere":
+		creds.CohereAPIKey = apiKey
+	case "perplexity":
+		creds.PerplexityAPIKey = apiKey
+	case "azure":
+		creds.AzureAPIKey = apiKey
+	case "gitlab":
+		creds.GitLabToken = apiKey
+	case "cloudflare":
+		creds.CloudflareAPIToken = apiKey
+	case "replicate":
+		creds.ReplicateAPIToken = apiKey
+	}
+}
+
+// ProviderLogin authenticates with a single provider by key.
+// For API-key providers it opens the browser and prompts for the key.
+// For "copilot" it returns a sentinel error so the caller can delegate to the OAuth flow.
+func ProviderLogin(providerKey string) error {
+	// Look up provider info
+	var info *ProviderInfo
+	for i := range ProviderRegistry {
+		if ProviderRegistry[i].Key == providerKey {
+			info = &ProviderRegistry[i]
+			break
+		}
+	}
+	if info == nil {
+		return fmt.Errorf("unknown provider: %s", providerKey)
+	}
+
+	cyan := "\033[36m"
+	green := "\033[32m"
+	yellow := "\033[33m"
+	gray := "\033[90m"
+	reset := "\033[0m"
+	bold := "\033[1m"
+
+	fmt.Println()
+	fmt.Println(cyan + bold + "╭────────────────────────────────────────────╮" + reset)
+	fmt.Printf(cyan+bold+"│  🔐 Authenticate with %-21s│\n"+reset, info.Name)
+	fmt.Println(cyan + bold + "╰────────────────────────────────────────────╯" + reset)
+	fmt.Println()
+
+	fmt.Println(gray + "Get your API key from: " + yellow + info.URLHint + reset)
+	fmt.Println()
+
+	// Try to open the browser (best-effort)
+	if err := OpenBrowser(info.URLHint); err == nil {
+		fmt.Println(gray + "Opening browser..." + reset)
+		fmt.Println()
+	}
+
+	apiKey, err := readHiddenInput(yellow + "API Key" + reset + " " + gray + "(hidden, Enter to cancel): " + reset)
+	if err != nil {
+		return fmt.Errorf("failed to read API key: %w", err)
+	}
+	if apiKey == "" {
+		fmt.Println(gray + "→ Cancelled" + reset)
+		return nil
+	}
+
+	creds, _ := LoadCredentials()
+	if creds == nil {
+		creds = &Credentials{}
+	}
+	setProviderKey(creds, providerKey, apiKey)
+
+	if err := SaveCredentials(creds); err != nil {
+		return fmt.Errorf("failed to save credentials: %w", err)
+	}
+
+	// Set as default provider
+	if err := SaveDefaultProvider(providerKey); err != nil {
+		fmt.Println(yellow + "⚠ Could not save default provider: " + err.Error() + reset)
+	}
+
+	path, _ := GetCredentialsPath()
+	fmt.Println()
+	fmt.Println(green + "✓ " + info.Name + " API key saved" + reset)
+	fmt.Println(gray + "  " + path + reset)
+	fmt.Println()
+	fmt.Println(yellow + "You can now run " + cyan + bold + "dcode" + reset + yellow + " to start coding!" + reset)
+	fmt.Println()
+
+	return nil
 }
 
 // Login prompts the user to enter API keys and stores them
@@ -275,7 +437,7 @@ func Login() error {
 
 	// Save selected provider to config so dcode uses it by default
 	if choice != "multiple" {
-		if err := saveDefaultProvider(choice); err != nil {
+		if err := SaveDefaultProvider(choice); err != nil {
 			fmt.Println(yellow + "⚠ Could not save default provider to config: " + reset + err.Error())
 		} else {
 			fmt.Println(green + "✓ Default provider set to: " + reset + bold + choice + reset)
@@ -294,8 +456,8 @@ func Login() error {
 	return nil
 }
 
-// saveDefaultProvider saves the provider choice to the config file
-func saveDefaultProvider(providerName string) error {
+// SaveDefaultProvider saves the provider choice to the config file
+func SaveDefaultProvider(providerName string) error {
 	configDir := GetConfigDir()
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return err
