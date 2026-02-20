@@ -15,7 +15,7 @@ import (
 func WebSearchTool() *ToolDef {
 	return &ToolDef{
 		Name:        "WebSearch",
-		Description: "Search the web using various search providers (DuckDuckGo, Brave, Google, Bing). Returns search results with titles, URLs, and snippets.",
+		Description: "Search the web. Returns results with titles, URLs, and snippets.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

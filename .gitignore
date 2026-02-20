@@ -1,5 +1,5 @@
-# Binaries (except the one for npm distribution)
-# dcode - commented out to allow npm publishing
+# Binaries
+/dcode
 *.exe
 *.exe~
 *.dll
@@ -32,6 +32,7 @@ Thumbs.db
 # Config files with secrets
 dcode.yaml
 .dcode/dcode.yaml
+credentials.json
 
 # Logs
 *.log

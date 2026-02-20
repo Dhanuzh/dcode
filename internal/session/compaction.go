@@ -4,10 +4,10 @@ import (
 	"strings"
 )
 
-// Compaction constants matching opencode's compaction.ts
+// Compaction constants – tuned for low-credit providers like Copilot
 const (
-	PruneMinimum = 20000 // Minimum tokens before pruning activates
-	PruneProtect = 40000 // Keep this many tokens of recent tool calls unpruned
+	PruneMinimum = 4000  // Minimum tokens before pruning activates
+	PruneProtect = 10000 // Keep this many tokens of recent tool calls unpruned
 )
 
 // CompactionConfig holds compaction settings
@@ -41,7 +41,7 @@ func IsOverflow(inputTokens, cacheRead, outputTokens int, contextLimit, outputLi
 }
 
 // OutputTokenMax is the default maximum output tokens
-const OutputTokenMax = 16384
+const OutputTokenMax = 12288
 
 // PruneProtectedTools are tools whose output should never be pruned
 var PruneProtectedTools = map[string]bool{

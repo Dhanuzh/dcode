@@ -14,7 +14,7 @@ import (
 func BashTool() *ToolDef {
 	return &ToolDef{
 		Name:        "bash",
-		Description: "Execute a shell command. The command runs in the project's working directory. Use this for running builds, tests, git commands, installing dependencies, and other shell operations. Commands have a configurable timeout (default 120 seconds).",
+		Description: "Execute a shell command in the project directory. Default timeout: 120s.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -70,9 +70,9 @@ func BashTool() *ToolDef {
 				output += "\n" + errOutput
 			}
 
-			// Truncate output if too large
-			if len(output) > 100*1024 {
-				output = output[:50*1024] + "\n\n... (output truncated) ...\n\n" + output[len(output)-50*1024:]
+			// Truncate output if too large (30KB cap to save tokens)
+			if len(output) > 30*1024 {
+				output = output[:15*1024] + "\n\n... (output truncated) ...\n\n" + output[len(output)-15*1024:]
 			}
 
 			if err != nil {

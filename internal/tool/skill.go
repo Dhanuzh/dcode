@@ -13,7 +13,7 @@ import (
 func SkillTool() *ToolDef {
 	return &ToolDef{
 		Name:        "skill",
-		Description: "Load a specialized skill that provides domain-specific instructions and workflows. Skills are loaded from .dcode/skills/ directory as markdown files with frontmatter.",
+		Description: "Load a specialized skill from .dcode/skills/ for domain-specific workflows.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

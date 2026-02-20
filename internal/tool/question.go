@@ -56,7 +56,7 @@ func AnswerQuestion(sessionID string, answer []string) {
 func QuestionTool() *ToolDef {
 	return &ToolDef{
 		Name:        "question",
-		Description: "Ask the user a question during execution. This allows you to gather preferences, clarify ambiguous instructions, get decisions on implementation choices, or offer choices about what direction to take. Answers are returned as arrays of labels.",
+		Description: "Ask the user a question with predefined choices. Answers returned as label arrays.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

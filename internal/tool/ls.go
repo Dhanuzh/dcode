@@ -12,7 +12,7 @@ import (
 func LsTool() *ToolDef {
 	return &ToolDef{
 		Name:        "ls",
-		Description: "List directory contents in a tree-like format. Shows files with sizes and directories. Ignores common non-essential directories like node_modules and .git. Limited to 100 entries.",
+		Description: "List directory contents as a tree. Shows files with sizes. Limited to 100 entries.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

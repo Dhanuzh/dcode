@@ -13,7 +13,7 @@ import (
 func ApplyPatchTool() *ToolDef {
 	return &ToolDef{
 		Name:        "apply_patch",
-		Description: "Apply a patch in the custom patch format. This supports the '*** Begin Patch' format used for multi-file modifications. The patch describes changes to make to files using before/after blocks.",
+		Description: "Apply a patch in the custom '*** Begin Patch' format for multi-file changes.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

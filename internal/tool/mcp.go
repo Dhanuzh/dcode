@@ -16,7 +16,7 @@ import (
 func MCPTool() *ToolDef {
 	return &ToolDef{
 		Name:        "MCP",
-		Description: "Connect to Model Context Protocol servers to access external tools and context. Supports HTTP, SSE, and process-based MCP servers.",
+		Description: "Connect to MCP servers for external tools. Supports HTTP, SSE, and process-based.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

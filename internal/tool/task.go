@@ -9,7 +9,7 @@ import (
 func TaskTool() *ToolDef {
 	return &ToolDef{
 		Name:        "task",
-		Description: "Spawn a subtask that runs as a separate agent session. Use this for parallel research, exploration, or complex multi-step tasks that can run independently. The subtask agent can use its own tools.",
+		Description: "Spawn a subtask as a separate agent session for parallel work.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

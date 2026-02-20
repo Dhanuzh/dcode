@@ -628,13 +628,24 @@ func (pe *PromptEngine) streamMessage(ctx context.Context, req *provider.Message
 	return &response, err
 }
 
+// MaxToolOutputChars is the maximum characters of a tool result sent to the LLM.
+// Longer outputs are truncated to head + tail to save tokens.
+const MaxToolOutputChars = 12000
+
+// truncateToolOutput keeps the first and last portions of large tool outputs.
+func truncateToolOutput(s string) string {
+	if len(s) <= MaxToolOutputChars {
+		return s
+	}
+	half := MaxToolOutputChars / 2
+	return s[:half] + "\n\n... (truncated) ...\n\n" + s[len(s)-half:]
+}
+
 // buildLLMMessages converts session messages to LLM provider format
 func (pe *PromptEngine) buildLLMMessages(messages []Message) []provider.Message {
 	llmMessages := make([]provider.Message, 0, len(messages))
 
 	// First pass: fix any missing ToolIDs in the session history
-	// and build a map of valid tool call IDs for pairing validation
-	toolIDMap := make(map[string]string) // maps original (possibly empty) -> generated ID
 	for i, msg := range messages {
 		if msg.Role != "assistant" {
 			continue
@@ -643,7 +654,6 @@ func (pe *PromptEngine) buildLLMMessages(messages []Message) []provider.Message 
 			if part.Type == "tool_use" && part.ToolID == "" {
 				newID := generateToolID()
 				messages[i].Parts[j].ToolID = newID
-				toolIDMap[""] = newID // track that we generated one
 			}
 		}
 	}
@@ -693,6 +703,8 @@ func (pe *PromptEngine) buildLLMMessages(messages []Message) []provider.Message 
 					content := part.Content
 					if part.IsCompacted {
 						content = "[compacted]"
+					} else {
+						content = truncateToolOutput(content)
 					}
 					blocks = append(blocks, provider.ContentBlock{
 						Type:      "tool_result",
@@ -701,11 +713,15 @@ func (pe *PromptEngine) buildLLMMessages(messages []Message) []provider.Message 
 						IsError:   part.IsError,
 					})
 				case "reasoning":
-					// Include reasoning in text form
+					// Keep reasoning but cap at 500 chars to save tokens
 					if part.Content != "" {
+						reasoning := part.Content
+						if len(reasoning) > 500 {
+							reasoning = reasoning[:500] + "..."
+						}
 						blocks = append(blocks, provider.ContentBlock{
 							Type: "text",
-							Text: "<thinking>" + part.Content + "</thinking>",
+							Text: "<thinking>" + reasoning + "</thinking>",
 						})
 					}
 				}

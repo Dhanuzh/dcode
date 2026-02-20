@@ -11,7 +11,7 @@ import (
 func DockerTool() *ToolDef {
 	return &ToolDef{
 		Name:        "Docker",
-		Description: "Manage Docker containers, images, volumes, and networks. Execute Docker commands for container lifecycle, inspection, logs, and more.",
+		Description: "Manage Docker containers, images, volumes, and networks.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

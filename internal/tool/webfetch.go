@@ -14,7 +14,7 @@ import (
 func WebFetchTool() *ToolDef {
 	return &ToolDef{
 		Name:        "webfetch",
-		Description: "Fetch a URL and return its content as readable text. HTML pages are converted to markdown-like format. Supports text, HTML, and JSON content types. Has a 5MB size limit and 30 second timeout.",
+		Description: "Fetch a URL and return content as text. HTML converted to markdown. 5MB/30s limits.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

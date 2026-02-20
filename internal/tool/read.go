@@ -14,7 +14,7 @@ import (
 func ReadTool() *ToolDef {
 	return &ToolDef{
 		Name:        "read",
-		Description: "Read the contents of a file. Supports reading specific line ranges with offset and limit parameters. Image files and PDFs are returned as attachments. Use this before editing files to understand their current state.",
+		Description: "Read file contents with optional offset/limit. Images and PDFs returned as attachments.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -183,9 +183,9 @@ func readTextFile(path string, data []byte, input map[string]interface{}) (*Tool
 
 	result := strings.Join(numbered, "\n")
 
-	// Truncate if too large (50KB limit)
-	if len(result) > 50*1024 {
-		result = result[:50*1024] + "\n... (truncated, file too large)"
+	// Truncate if too large (20KB limit to save tokens)
+	if len(result) > 20*1024 {
+		result = result[:20*1024] + "\n... (truncated, file too large)"
 	}
 
 	header := fmt.Sprintf("File: %s (%d lines total, showing lines %d-%d)\n\n", path, len(lines), startIdx+1, endIdx)

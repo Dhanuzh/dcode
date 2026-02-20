@@ -13,7 +13,7 @@ import (
 func EditTool() *ToolDef {
 	return &ToolDef{
 		Name:        "edit",
-		Description: "Perform a string replacement in a file. Uses fuzzy matching with 9 fallback strategies to handle indentation differences, whitespace issues, and escape sequence problems. Always read the file first to understand its content. Include enough context lines for a unique match.",
+		Description: "Find-and-replace in a file with fuzzy matching. Read the file first. Include enough context for a unique match.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -92,7 +92,7 @@ func EditTool() *ToolDef {
 func MultiEditTool() *ToolDef {
 	return &ToolDef{
 		Name:        "multiedit",
-		Description: "Perform multiple find-and-replace edits on a single file sequentially. More efficient than multiple edit calls. Each edit must have a unique old_string match.",
+		Description: "Multiple find-and-replace edits on one file. More efficient than multiple edit calls.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

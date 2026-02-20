@@ -12,7 +12,7 @@ import (
 func WriteTool() *ToolDef {
 	return &ToolDef{
 		Name:        "write",
-		Description: "Write content to a file. Creates the file if it doesn't exist. Creates parent directories automatically. Use this for creating new files or completely replacing file contents.",
+		Description: "Write content to a file. Creates parent directories if needed.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

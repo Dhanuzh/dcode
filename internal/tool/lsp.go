@@ -13,7 +13,7 @@ import (
 func LSPTool() *ToolDef {
 	return &ToolDef{
 		Name:        "LSP",
-		Description: "Query language servers for code intelligence: definitions, references, hover info, symbols, diagnostics. Supports Go (gopls), TypeScript (typescript-language-server), Python (pylsp), Rust (rust-analyzer), and more.",
+		Description: "Query language servers for definitions, references, hover info, symbols, and diagnostics.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

@@ -34,7 +34,7 @@ func SetPlanMode(sessionID string, enabled bool) {
 func PlanEnterTool() *ToolDef {
 	return &ToolDef{
 		Name:        "plan_enter",
-		Description: "Enter plan mode. In plan mode, you switch to read-only analysis where you can explore code, think through approaches, and create detailed plans before making changes. Use this when you need to think through a complex problem before writing code.",
+		Description: "Enter read-only plan mode for analysis and planning before making changes.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

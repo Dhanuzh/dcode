@@ -13,7 +13,7 @@ import (
 func ImageTool() *ToolDef {
 	return &ToolDef{
 		Name:        "Image",
-		Description: "Analyze images using vision models. Can describe images, extract text (OCR), detect objects, answer questions about images, and more.",
+		Description: "Analyze images: describe, OCR, detect objects, answer questions.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

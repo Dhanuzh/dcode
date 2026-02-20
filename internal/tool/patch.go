@@ -12,7 +12,7 @@ import (
 func PatchTool() *ToolDef {
 	return &ToolDef{
 		Name:        "patch",
-		Description: "Apply a unified diff patch to one or more files. The patch should be in standard unified diff format. Supports creating, modifying, and deleting files.",
+		Description: "Apply a unified diff patch to files. Standard unified diff format.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

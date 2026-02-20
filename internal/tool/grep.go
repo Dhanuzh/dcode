@@ -12,7 +12,7 @@ import (
 func GrepTool() *ToolDef {
 	return &ToolDef{
 		Name:        "grep",
-		Description: "Search file contents using a regular expression pattern. Uses ripgrep for fast searching. Returns matching lines with file paths and line numbers.",
+		Description: "Search file contents using regex. Returns matching lines with paths and line numbers.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

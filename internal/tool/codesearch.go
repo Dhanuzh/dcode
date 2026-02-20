@@ -12,7 +12,7 @@ import (
 func CodeSearchTool() *ToolDef {
 	return &ToolDef{
 		Name:        "codesearch",
-		Description: "Search code semantically across the project. Uses tree-sitter or AST-aware search to find definitions, references, and symbols. Falls back to ripgrep for pattern matching. Use this for finding function definitions, class hierarchies, or symbol references.",
+		Description: "Search code for definitions, references, and symbols. Falls back to ripgrep.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

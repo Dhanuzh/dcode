@@ -15,7 +15,7 @@ import (
 func GlobTool() *ToolDef {
 	return &ToolDef{
 		Name:        "glob",
-		Description: "Find files matching a glob pattern in the project. Returns up to 100 matching files sorted by modification time (newest first). Useful for discovering files by name pattern.",
+		Description: "Find files matching a glob pattern. Returns up to 100 matches sorted by modification time.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

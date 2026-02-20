@@ -13,7 +13,7 @@ import (
 func BatchTool() *ToolDef {
 	return &ToolDef{
 		Name:        "batch",
-		Description: "Execute multiple tool calls in parallel for efficiency. Use this when you need to perform several independent operations that don't depend on each other's results. Each operation runs concurrently.",
+		Description: "Execute multiple independent tool calls in parallel.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

@@ -25,7 +25,7 @@ var (
 func TodoReadTool() *ToolDef {
 	return &ToolDef{
 		Name:        "todo_read",
-		Description: "Read the current task todo list for this session. Returns all todo items with their status.",
+		Description: "Read the current session's todo list with statuses.",
 		Parameters: map[string]interface{}{
 			"type":       "object",
 			"properties": map[string]interface{}{},
@@ -64,7 +64,7 @@ func TodoReadTool() *ToolDef {
 func TodoWriteTool() *ToolDef {
 	return &ToolDef{
 		Name:        "todo_write",
-		Description: "Update the task todo list for this session. Provide the complete list of todos with their statuses. Use this to track progress on multi-step tasks.",
+		Description: "Update the session's todo list with new items and statuses.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

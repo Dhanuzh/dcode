@@ -11,7 +11,7 @@ import (
 func GitTool() *ToolDef {
 	return &ToolDef{
 		Name:        "Git",
-		Description: "Execute Git version control commands to manage repository state, view history, create commits, manage branches, and more. Supports all standard Git operations.",
+		Description: "Execute Git commands for commits, branches, history, and repo management.",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
