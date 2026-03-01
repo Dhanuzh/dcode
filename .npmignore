@@ -1,0 +1,51 @@
+# Source code (we only publish the binary)
+cmd/
+internal/
+pkg/
+*.go
+go.mod
+go.sum
+Makefile
+
+# Build artifacts not needed
+*.test
+*.out
+
+# Test files
+test-components
+test-components-full
+
+# Documentation (keep README.md)
+AUTHENTICATION.md
+INTEGRATION_COMPLETE.md
+OPTION_D_PROGRESS.md
+PHASE1_COMPLETE.md
+PHASE1_PROGRESS.md
+PHASE2_COMPONENTS.md
+PHASE2_PROGRESS.md
+PHASE2_UPDATE.md
+PROJECT_SUMMARY.md
+PROVIDER_EXPANSION_COMPLETE.md
+QUICKSTART.md
+RELEASE_NOTES_V2.md
+SESSION_SUMMARY.md
+SETUP.md
+TESTING.md
+TESTING_GUIDE.md
+THEME_SYSTEM.md
+UI_IMPROVEMENTS.md
+demo_ui.sh
+
+# Config examples
+*.example
+dcode.yaml.example
+
+# Python files
+*.py
+
+# Git
+.git
+.gitignore
+
+# Claude
+.claude/

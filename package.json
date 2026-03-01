@@ -1,0 +1,48 @@
+{
+  "name": "@dcode-dev/dcode",
+  "version": "1.1.8",
+  "description": "AI-Powered Coding Assistant built with Go - Terminal-based AI assistant for writing, editing, and understanding code",
+  "main": "index.js",
+  "bin": {
+    "dcode": "./bin/dcode.js"
+  },
+  "scripts": {
+    "install": "node install.js",
+    "test": "echo \"No JS tests\" && exit 0"
+  },
+  "keywords": [
+    "ai",
+    "coding-assistant",
+    "cli",
+    "code-generation",
+    "anthropic",
+    "openai",
+    "claude",
+    "gpt",
+    "developer-tools",
+    "terminal"
+  ],
+  "author": "dcode-dev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dhanuzh/dcode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Dhanuzh/dcode/issues"
+  },
+  "homepage": "https://github.com/Dhanuzh/dcode#readme",
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "preferGlobal": true,
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

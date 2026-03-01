@@ -1,0 +1,50 @@
+# Binaries
+/dcode
+dcode_bin
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config files with secrets
+dcode.yaml
+.dcode/dcode.yaml
+.dcode/dcode.json
+credentials.json
+*.jsonc
+
+# Logs
+*.log
+
+# Build artifacts
+dist/
+
+# Node (sdk)
+node_modules/
+sdk/node_modules/
