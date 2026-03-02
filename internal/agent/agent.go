@@ -623,15 +623,7 @@ func buildPromptWithContext(basePrompt string) string {
 }
 
 func currentDate() string {
-	// Return formatted date like "Mon Feb 11 2026"
-	return fmt.Sprintf("%s", strings.Fields(fmt.Sprintf("%v", func() string {
-		cmd := exec.Command("date", "+%a %b %d %Y")
-		out, err := cmd.Output()
-		if err != nil {
-			return "unknown"
-		}
-		return strings.TrimSpace(string(out))
-	}()))[0:])
+	return time.Now().Format("Mon Jan 02 2006")
 }
 
 // loadCustomInstructions walks up the directory tree loading instruction files

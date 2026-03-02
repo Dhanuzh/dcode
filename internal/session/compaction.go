@@ -6,8 +6,8 @@ import (
 
 // Compaction constants – tuned for low-credit providers like Copilot
 const (
-	PruneMinimum = 2000 // Minimum tokens before pruning activates (was 4000)
-	PruneProtect = 4000 // Keep this many tokens of recent tool calls unpruned (was 10000)
+	PruneMinimum = 500  // Minimum tokens before pruning activates (was 2000)
+	PruneProtect = 4000 // Keep this many tokens of recent tool calls unpruned
 )
 
 // CompactionConfig holds compaction settings
@@ -41,7 +41,7 @@ func IsOverflow(inputTokens, cacheRead, outputTokens int, contextLimit, outputLi
 }
 
 // OutputTokenMax is the default maximum output tokens
-const OutputTokenMax = 12288
+const OutputTokenMax = 8192
 
 // PruneProtectedTools are tools whose output should never be pruned
 var PruneProtectedTools = map[string]bool{

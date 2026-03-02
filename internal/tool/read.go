@@ -28,7 +28,7 @@ func ReadTool() *ToolDef {
 				},
 				"limit": map[string]interface{}{
 					"type":        "integer",
-					"description": "Maximum number of lines to read. Default: 2000",
+					"description": "Maximum number of lines to read. Default: 500",
 				},
 			},
 			"required": []string{"path"},
@@ -156,7 +156,7 @@ func readTextFile(path string, data []byte, input map[string]interface{}) (*Tool
 	if v, ok := input["offset"].(float64); ok && v > 0 {
 		offset = int(v)
 	}
-	limit := 2000
+	limit := 500
 	if v, ok := input["limit"].(float64); ok && v > 0 {
 		limit = int(v)
 	}
@@ -183,9 +183,9 @@ func readTextFile(path string, data []byte, input map[string]interface{}) (*Tool
 
 	result := strings.Join(numbered, "\n")
 
-	// Truncate if too large (20KB limit to save tokens)
-	if len(result) > 20*1024 {
-		result = result[:20*1024] + "\n... (truncated, file too large)"
+	// Truncate if too large (8KB limit to save tokens)
+	if len(result) > 8*1024 {
+		result = result[:8*1024] + "\n... (truncated, file too large)"
 	}
 
 	header := fmt.Sprintf("File: %s (%d lines total, showing lines %d-%d)\n\n", path, len(lines), startIdx+1, endIdx)

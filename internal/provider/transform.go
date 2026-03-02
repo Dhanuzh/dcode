@@ -251,8 +251,10 @@ func insertFillerMessages(messages []Message) []Message {
 func ApplyPromptCaching(messages []Message, providerID string) []Message {
 	// Only apply for providers that support prompt caching
 	switch providerID {
-	case "anthropic", "bedrock", "openrouter", "copilot":
-		// These providers support cache_control
+	case "anthropic", "bedrock", "openrouter":
+		// These providers support cache_control on message content blocks.
+		// Copilot uses OpenAI chat-completions format which does NOT support
+		// cache_control, so it is intentionally excluded here.
 	default:
 		return messages
 	}

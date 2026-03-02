@@ -774,11 +774,17 @@ func (pe *PromptEngine) buildLLMMessages(messages []Message) []provider.Message 
 		}
 
 		if len(msg.Parts) == 0 {
-			// Simple text message
-			llmMessages = append(llmMessages, provider.Message{
-				Role:    msg.Role,
-				Content: msg.Content,
-			})
+			// Simple text message — wrap in a ContentBlock slice so that
+			// ApplyPromptCaching can attach cache_control markers to it.
+			// Plain strings bypass the caching step entirely.
+			if msg.Content != "" {
+				llmMessages = append(llmMessages, provider.Message{
+					Role: msg.Role,
+					Content: []provider.ContentBlock{
+						{Type: "text", Text: msg.Content},
+					},
+				})
+			}
 		} else {
 			// Message with parts
 			blocks := make([]provider.ContentBlock, 0, len(msg.Parts))
@@ -924,8 +930,8 @@ func (pe *PromptEngine) generateTitle(sessionID, userMsg, assistantReply string)
 
 	// Build a short prompt for the title agent
 	prompt := fmt.Sprintf("User: %s\n\nAssistant: %s", userMsg, assistantReply)
-	if len(prompt) > 1000 {
-		prompt = prompt[:1000] + "..."
+	if len(prompt) > 400 {
+		prompt = prompt[:400] + "..."
 	}
 	titlePrompt := "Summarise the following conversation in 4-6 words as a session title. Reply with ONLY the title, no punctuation:\n\n" + prompt
 
@@ -961,8 +967,10 @@ func (pe *PromptEngine) runCompaction(ctx context.Context, sessionID string) err
 		return fmt.Errorf("get session: %w", err)
 	}
 
-	// Build messages to send to the compaction agent (include all conversation)
-	compactionMessages := BuildCompactionMessages(session.Messages, nil)
+	// Build messages to send to the compaction agent (include all conversation).
+	// Prune first so the compaction LLM call itself is cheaper.
+	prunedForCompaction := PruneToolOutputs(session.Messages, true)
+	compactionMessages := BuildCompactionMessages(prunedForCompaction, nil)
 
 	// Use a small/fast model for compaction
 	compactionModel := pe.config.GetSmallModel()

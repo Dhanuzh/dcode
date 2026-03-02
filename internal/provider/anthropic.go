@@ -72,11 +72,20 @@ func (p *AnthropicProvider) CreateMessage(ctx context.Context, req *MessageReque
 	reqBody := map[string]interface{}{
 		"model":      req.Model,
 		"max_tokens": req.MaxTokens,
-		"messages":   p.convertMessages(req.Messages),
+		"messages":   p.convertMessages(NormalizeMessages(req.Messages, "anthropic")),
 	}
 
 	if req.System != "" {
-		reqBody["system"] = req.System
+		// Send the system prompt as a structured content block with cache_control
+		// so Anthropic caches it. On every subsequent step of the same session
+		// the model serves the system prompt from cache at a fraction of the cost.
+		reqBody["system"] = []map[string]interface{}{
+			{
+				"type":          "text",
+				"text":          req.System,
+				"cache_control": map[string]string{"type": "ephemeral"},
+			},
+		}
 	}
 	if req.Temperature != 0 {
 		reqBody["temperature"] = req.Temperature
@@ -169,12 +178,18 @@ func (p *AnthropicProvider) StreamMessage(ctx context.Context, req *MessageReque
 	reqBody := map[string]interface{}{
 		"model":      req.Model,
 		"max_tokens": req.MaxTokens,
-		"messages":   p.convertMessages(req.Messages),
+		"messages":   p.convertMessages(NormalizeMessages(req.Messages, "anthropic")),
 		"stream":     true,
 	}
 
 	if req.System != "" {
-		reqBody["system"] = req.System
+		reqBody["system"] = []map[string]interface{}{
+			{
+				"type":          "text",
+				"text":          req.System,
+				"cache_control": map[string]string{"type": "ephemeral"},
+			},
+		}
 	}
 	if req.Temperature != 0 {
 		reqBody["temperature"] = req.Temperature
@@ -478,11 +493,18 @@ func (p *AnthropicProvider) parseAPIError(statusCode int, body []byte) error {
 func (p *AnthropicProvider) convertTools(tools []Tool) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(tools))
 	for i, tool := range tools {
-		result[i] = map[string]interface{}{
+		entry := map[string]interface{}{
 			"name":         tool.Name,
 			"description":  tool.Description,
 			"input_schema": tool.InputSchema,
 		}
+		// Mark the last tool with cache_control so Anthropic caches the entire
+		// tool block. The tool list is large and changes rarely — caching it
+		// avoids re-billing those tokens on every agentic step.
+		if i == len(tools)-1 {
+			entry["cache_control"] = map[string]string{"type": "ephemeral"}
+		}
+		result[i] = entry
 	}
 	return result
 }

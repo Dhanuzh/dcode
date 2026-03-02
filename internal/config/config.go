@@ -565,7 +565,7 @@ func Load() (*Config, error) {
 	v.SetDefault("provider", "anthropic")
 	v.SetDefault("model", "")
 	v.SetDefault("small_model", "")
-	v.SetDefault("max_tokens", 12288)
+	v.SetDefault("max_tokens", 8192)
 	v.SetDefault("temperature", 0.0)
 	v.SetDefault("streaming", true)
 	v.SetDefault("verbose", false)
