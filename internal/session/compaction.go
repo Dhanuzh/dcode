@@ -6,8 +6,8 @@ import (
 
 // Compaction constants – tuned for low-credit providers like Copilot
 const (
-	PruneMinimum = 4000  // Minimum tokens before pruning activates
-	PruneProtect = 10000 // Keep this many tokens of recent tool calls unpruned
+	PruneMinimum = 2000 // Minimum tokens before pruning activates (was 4000)
+	PruneProtect = 4000 // Keep this many tokens of recent tool calls unpruned (was 10000)
 )
 
 // CompactionConfig holds compaction settings

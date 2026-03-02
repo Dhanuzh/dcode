@@ -7,8 +7,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Dhanuzh/dcode/internal/config"
+)
+
+// promptContextCache holds the cached result of buildPromptWithContext so that
+// git subprocesses and directory walks only run once per TTL, not on every
+// agentic step.
+var (
+	promptContextCache     string
+	promptContextCacheKey  string // workdir + date, used as cache key
+	promptContextCacheTime time.Time
+	promptContextMu        sync.Mutex
+	promptContextTTL       = 30 * time.Second // refresh at most every 30 s
 )
 
 // AgentMode defines the agent's operational mode
@@ -541,6 +554,17 @@ func GetSystemPrompt(agentName string, cfg *config.Config) string {
 // buildPromptWithContext adds environment context to a prompt
 func buildPromptWithContext(basePrompt string) string {
 	workdir, _ := os.Getwd()
+	date := currentDate()
+	cacheKey := workdir + "|" + date
+
+	promptContextMu.Lock()
+	if promptContextCacheKey == cacheKey && !promptContextCacheTime.IsZero() && time.Since(promptContextCacheTime) < promptContextTTL {
+		cached := promptContextCache
+		promptContextMu.Unlock()
+		return basePrompt + cached
+	}
+	promptContextMu.Unlock()
+
 	platform := runtime.GOOS + "/" + runtime.GOARCH
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -576,7 +600,7 @@ func buildPromptWithContext(basePrompt string) string {
   Is directory a git repo: %v
   Platform: %s
   Today's date: %s
-</env>`, workdir, isGitRepo, platform, currentDate())
+</env>`, workdir, isGitRepo, platform, date)
 
 	if gitBranch != "" {
 		context += fmt.Sprintf("\n- Git Branch: %s", gitBranch)
@@ -588,6 +612,12 @@ func buildPromptWithContext(basePrompt string) string {
 	if customInstructions != "" {
 		context += "\n\n## Project Instructions\n\n" + customInstructions
 	}
+
+	promptContextMu.Lock()
+	promptContextCache = context
+	promptContextCacheKey = cacheKey
+	promptContextCacheTime = time.Now()
+	promptContextMu.Unlock()
 
 	return basePrompt + context
 }

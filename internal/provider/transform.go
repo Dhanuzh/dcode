@@ -238,7 +238,16 @@ func insertFillerMessages(messages []Message) []Message {
 	return result
 }
 
-// ApplyPromptCaching adds ephemeral cache markers to messages for providers that support it
+// ApplyPromptCaching adds ephemeral cache markers to messages for providers that support it.
+// This activates Anthropic's prompt caching feature, which can reduce input token costs by
+// up to 90% on cache hits and 50% on cache reads for repeated large contexts.
+//
+// Strategy (mirrors opencode):
+//   - Find the last 2 user messages that contain substantial content blocks.
+//   - Mark the final content block of each of those messages with cache_control=ephemeral.
+//
+// This ensures the stable "head" of the conversation (system prompt + most of the history)
+// is cached by the provider, while only the fresh tail is billed at full price.
 func ApplyPromptCaching(messages []Message, providerID string) []Message {
 	// Only apply for providers that support prompt caching
 	switch providerID {
@@ -252,10 +261,30 @@ func ApplyPromptCaching(messages []Message, providerID string) []Message {
 		return messages
 	}
 
-	// Mark first 2 system messages and last 2 non-system messages for caching
-	// This matches opencode's applyCaching behavior
+	// Deep-copy the slice so we don't mutate the caller's data.
 	result := make([]Message, len(messages))
 	copy(result, messages)
+
+	// Walk backwards, tagging the last content block of the 2 most-recent
+	// non-system messages that have []ContentBlock content.
+	tagged := 0
+	for i := len(result) - 1; i >= 0 && tagged < 2; i-- {
+		msg := result[i]
+		if msg.Role == "system" {
+			continue
+		}
+		blocks, ok := msg.Content.([]ContentBlock)
+		if !ok || len(blocks) == 0 {
+			continue
+		}
+		// Copy the blocks slice so we don't alias the original.
+		newBlocks := make([]ContentBlock, len(blocks))
+		copy(newBlocks, blocks)
+		// Mark the last block for caching.
+		newBlocks[len(newBlocks)-1].CacheControl = "ephemeral"
+		result[i] = Message{Role: msg.Role, Content: newBlocks}
+		tagged++
+	}
 
 	return result
 }

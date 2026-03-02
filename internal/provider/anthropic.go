@@ -439,6 +439,9 @@ func (p *AnthropicProvider) convertMessages(messages []Message) []map[string]int
 					if block.IsError {
 						blockMap["is_error"] = block.IsError
 					}
+					if block.CacheControl != "" {
+						blockMap["cache_control"] = map[string]string{"type": block.CacheControl}
+					}
 				}
 				blocks = append(blocks, blockMap)
 			}

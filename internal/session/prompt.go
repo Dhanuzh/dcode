@@ -214,6 +214,11 @@ func (pe *PromptEngine) RunWithAttachments(ctx context.Context, sessionID, userM
 
 		llmMessages := pe.buildLLMMessages(prunedMessages)
 
+		// Apply prompt caching markers so providers like Anthropic/Copilot can
+		// serve cache hits on the stable head of the conversation, cutting input
+		// token costs significantly on every repeated step.
+		llmMessages = provider.ApplyPromptCaching(llmMessages, pe.provider.Name())
+
 		// Get available tools
 		toolDefs := pe.registry.GetFiltered(pe.agent.Tools)
 
@@ -732,7 +737,9 @@ func (pe *PromptEngine) streamMessage(ctx context.Context, req *provider.Message
 
 // MaxToolOutputChars is the maximum characters of a tool result sent to the LLM.
 // Longer outputs are truncated to head + tail to save tokens.
-const MaxToolOutputChars = 12000
+// Keeping this tight (6 KB) greatly reduces per-step input costs for tools like
+// read/grep/bash that can return large outputs.
+const MaxToolOutputChars = 6000
 
 // truncateToolOutput keeps the first and last portions of large tool outputs.
 func truncateToolOutput(s string) string {
@@ -827,17 +834,11 @@ func (pe *PromptEngine) buildLLMMessages(messages []Message) []provider.Message 
 						})
 					}
 				case "reasoning":
-					// Keep reasoning but cap at 500 chars to save tokens
-					if part.Content != "" {
-						reasoning := part.Content
-						if len(reasoning) > 500 {
-							reasoning = reasoning[:500] + "..."
-						}
-						blocks = append(blocks, provider.ContentBlock{
-							Type: "text",
-							Text: "<thinking>" + reasoning + "</thinking>",
-						})
-					}
+					// Drop reasoning/thinking blocks from the history entirely.
+					// They are large (can be tens of thousands of tokens) and the
+					// model does not need them re-sent on subsequent turns.
+					// Omitting them here prevents a compounding cost increase as
+					// the conversation grows.
 				}
 			}
 			if len(blocks) > 0 {

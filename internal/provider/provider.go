@@ -253,6 +253,10 @@ type ContentBlock struct {
 
 	// Reasoning fields (for extended thinking)
 	Reasoning string `json:"reasoning,omitempty"`
+
+	// CacheControl instructs the provider to cache this block (Anthropic prompt caching).
+	// Set to "ephemeral" to enable caching.
+	CacheControl string `json:"cache_control,omitempty"`
 }
 
 // Tool defines a tool that the AI can use
