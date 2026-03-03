@@ -737,9 +737,8 @@ func (pe *PromptEngine) streamMessage(ctx context.Context, req *provider.Message
 
 // MaxToolOutputChars is the maximum characters of a tool result sent to the LLM.
 // Longer outputs are truncated to head + tail to save tokens.
-// Keeping this tight (6 KB) greatly reduces per-step input costs for tools like
-// read/grep/bash that can return large outputs.
-const MaxToolOutputChars = 6000
+// 3 KB keeps the model well-informed while cutting input costs substantially.
+const MaxToolOutputChars = 3000
 
 // truncateToolOutput keeps the first and last portions of large tool outputs.
 func truncateToolOutput(s string) string {
@@ -928,19 +927,26 @@ func (pe *PromptEngine) generateTitle(sessionID, userMsg, assistantReply string)
 		return
 	}
 
-	// Build a short prompt for the title agent
-	prompt := fmt.Sprintf("User: %s\n\nAssistant: %s", userMsg, assistantReply)
-	if len(prompt) > 400 {
-		prompt = prompt[:400] + "..."
+	// Build a short prompt for the title agent — keep it tiny (≤200 chars)
+	combined := userMsg
+	if len(combined) > 120 {
+		combined = combined[:120]
 	}
-	titlePrompt := "Summarise the following conversation in 4-6 words as a session title. Reply with ONLY the title, no punctuation:\n\n" + prompt
+	if assistantReply != "" {
+		tail := assistantReply
+		if len(tail) > 60 {
+			tail = tail[:60]
+		}
+		combined += " | " + tail
+	}
+	titlePrompt := "Title (≤50 chars, no punctuation): " + combined
 
 	req := &provider.MessageRequest{
 		Model:       pe.config.GetSmallModel(),
 		Messages:    []provider.Message{{Role: "user", Content: titlePrompt}},
-		MaxTokens:   20,
+		MaxTokens:   15,
 		Temperature: 0.5,
-		System:      "You generate ultra-concise session titles.",
+		System:      "Output only a session title, ≤50 chars.",
 	}
 
 	resp, err := pe.provider.CreateMessage(ctx, req)
@@ -976,15 +982,12 @@ func (pe *PromptEngine) runCompaction(ctx context.Context, sessionID string) err
 	compactionModel := pe.config.GetSmallModel()
 	compactionProvider := pe.config.Provider
 
-	// Use the same provider but with the compaction agent system prompt
-	compactionAgentPrompt := "You are a helpful AI assistant tasked with summarizing conversations. Create a concise but complete summary of the conversation above that could be used to continue the conversation from scratch."
-
 	req := &provider.MessageRequest{
 		Model:       compactionModel,
 		Messages:    pe.buildLLMMessages(compactionMessages),
-		MaxTokens:   4096,
+		MaxTokens:   1024,
 		Temperature: 0,
-		System:      compactionAgentPrompt,
+		System:      "Summarize this conversation concisely so it can be continued from scratch. Include: what was done, files modified, what to do next, key decisions.",
 	}
 
 	_ = compactionProvider

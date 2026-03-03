@@ -4,10 +4,10 @@ import (
 	"strings"
 )
 
-// Compaction constants – tuned for low-credit providers like Copilot
+// Compaction constants – aggressively prune to keep per-step costs low.
 const (
-	PruneMinimum = 500  // Minimum tokens before pruning activates (was 2000)
-	PruneProtect = 4000 // Keep this many tokens of recent tool calls unpruned
+	PruneMinimum = 200  // Minimum tokens freed for pruning to be worthwhile
+	PruneProtect = 2000 // Keep this many tokens of recent tool calls unpruned
 )
 
 // CompactionConfig holds compaction settings
@@ -41,7 +41,7 @@ func IsOverflow(inputTokens, cacheRead, outputTokens int, contextLimit, outputLi
 }
 
 // OutputTokenMax is the default maximum output tokens
-const OutputTokenMax = 8192
+const OutputTokenMax = 4096
 
 // PruneProtectedTools are tools whose output should never be pruned
 var PruneProtectedTools = map[string]bool{
@@ -128,7 +128,7 @@ func estimateTokens(text string) int {
 }
 
 // CompactionPromptText is the default prompt sent to the compaction agent
-const CompactionPromptText = `Provide a detailed prompt for continuing our conversation above. Focus on information that would be helpful for continuing the conversation, including what we did, what we're doing, which files we're working on, and what we're going to do next considering new session will not have access to our conversation.`
+const CompactionPromptText = `Summarize this conversation concisely. Include: what was done, files modified, what to do next, key decisions and user preferences.`
 
 // BuildCompactionMessages creates the messages to send to the compaction agent
 func BuildCompactionMessages(conversationMessages []Message, additionalContext []string) []Message {

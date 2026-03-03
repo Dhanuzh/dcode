@@ -565,52 +565,32 @@ func buildPromptWithContext(basePrompt string) string {
 	}
 	promptContextMu.Unlock()
 
-	platform := runtime.GOOS + "/" + runtime.GOARCH
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
-
-	// Git info
+	// Git branch only (skip status to save tokens)
 	gitBranch := ""
-	gitStatus := ""
 	isGitRepo := false
 	if cmd, err := exec.Command("git", "branch", "--show-current").Output(); err == nil {
 		gitBranch = strings.TrimSpace(string(cmd))
 		isGitRepo = true
 	}
-	if cmd, err := exec.Command("git", "status", "--porcelain").Output(); err == nil {
-		lines := strings.Split(strings.TrimSpace(string(cmd)), "\n")
-		if len(lines) > 0 && lines[0] != "" {
-			gitStatus = fmt.Sprintf("%d modified files", len(lines))
-		} else {
-			gitStatus = "clean"
-		}
-	}
 
-	// Load custom instructions
+	// Load custom instructions (project dir only)
 	customInstructions := loadCustomInstructions(workdir)
 
 	context := fmt.Sprintf(`
-
-## Environment
 
 <env>
   Working directory: %s
   Is directory a git repo: %v
   Platform: %s
   Today's date: %s
-</env>`, workdir, isGitRepo, platform, date)
+</env>`, workdir, isGitRepo, runtime.GOOS, date)
 
 	if gitBranch != "" {
 		context += fmt.Sprintf("\n- Git Branch: %s", gitBranch)
 	}
-	if gitStatus != "" {
-		context += fmt.Sprintf("\n- Git Status: %s", gitStatus)
-	}
 
 	if customInstructions != "" {
-		context += "\n\n## Project Instructions\n\n" + customInstructions
+		context += "\n\n" + customInstructions
 	}
 
 	promptContextMu.Lock()
@@ -626,37 +606,33 @@ func currentDate() string {
 	return time.Now().Format("Mon Jan 02 2006")
 }
 
-// loadCustomInstructions walks up the directory tree loading instruction files
-// Follows the same pattern as opencode: AGENTS.md, CLAUDE.md, .dcode/instructions.md
+// loadCustomInstructions loads instruction files from the project directory only.
+// It does NOT walk up the directory tree to avoid injecting large files from
+// ancestor/home directories into every request (which inflates token usage).
 func loadCustomInstructions(workdir string) string {
 	var instructions []string
 
-	// Walk up directory tree looking for instruction files
-	dir := workdir
-	for {
-		candidates := []string{
-			filepath.Join(dir, ".dcode", "instructions.md"),
-			filepath.Join(dir, ".dcode", "AGENTS.md"),
-			filepath.Join(dir, "AGENTS.md"),
-			filepath.Join(dir, "CLAUDE.md"),
-			filepath.Join(dir, ".github", "AGENTS.md"),
-		}
+	// Only look in the immediate project directory and its .dcode subdirectory.
+	candidates := []string{
+		filepath.Join(workdir, ".dcode", "instructions.md"),
+		filepath.Join(workdir, "AGENTS.md"),
+	}
 
-		for _, path := range candidates {
-			if data, err := os.ReadFile(path); err == nil {
-				content := strings.TrimSpace(string(data))
-				if content != "" {
-					header := fmt.Sprintf("Instructions from: %s", path)
-					instructions = append(instructions, header+"\n"+content)
-				}
-			}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
 		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
+		content := strings.TrimSpace(string(data))
+		if content == "" {
+			continue
 		}
-		dir = parent
+		// Cap each instruction file at 4 KB to prevent runaway token usage.
+		const maxInstructionBytes = 4096
+		if len(content) > maxInstructionBytes {
+			content = content[:maxInstructionBytes] + "\n... (truncated)"
+		}
+		instructions = append(instructions, content)
 	}
 
 	return strings.Join(instructions, "\n\n")
@@ -768,97 +744,26 @@ func LoadCustomAgents(workdir string) map[string]*Agent {
 }
 
 // CoderPrompt is the default system prompt for the coder agent
-const CoderPrompt = `You are DCode, an advanced AI coding agent operating as an interactive CLI tool.
+const CoderPrompt = `You are DCode, an AI coding agent in a CLI.
 
-You help developers with software engineering tasks using tools for reading, writing, searching code, and executing commands.
-
-## Core Rules
-
-1. **Be concise** — your output displays in a terminal.
-2. **Always read before editing** — use exact string matching with enough context for unique matches. Preserve indentation.
-3. **Search effectively** — use glob for file patterns, grep for content search, codesearch for symbols, ls for directory structure.
-4. **Execute carefully** — use bash for git, builds, tests. Quote paths with spaces. Chain with &&.
-5. **Solve problems systematically** — break complex tasks into steps, use the todo tool to track progress, verify with tests.
-6. **Handle errors gracefully** — if a tool fails, explain why and try alternatives. Never give up without trying multiple approaches.
-7. **Write quality code** — follow project conventions, write idiomatic code, consider edge cases.
-8. **Use parallel execution** — use batch or task tools when operations are independent.`
+Rules: be concise; read before editing; use glob/grep/codesearch to find things; use bash for git/builds/tests; break tasks into steps with the todo tool; follow project conventions; run parallel tool calls when independent.`
 
 // PlannerPrompt is the system prompt for the planner agent
-const PlannerPrompt = `You are DCode in Plan mode — a read-only analysis and exploration agent.
+const PlannerPrompt = `You are DCode in Plan mode — read-only analysis. You CANNOT modify files.
 
-You can analyze code, explore the codebase, and provide recommendations, but you CANNOT modify files.
-
-Guidelines:
-- Provide thorough analysis of code, architecture, and potential issues.
-- Use tools to gather comprehensive context before answering.
-- Suggest specific changes with code snippets the user can apply.
-- Consider system design and long-term maintainability.`
+Analyze code, explore the codebase, suggest specific changes with snippets. Use tools for context.`
 
 // ExplorerPrompt is the system prompt for the explorer subagent
-const ExplorerPrompt = `You are a file search specialist that excels at navigating and exploring codebases.
-
-Guidelines:
-- Use Glob for file pattern matching, Grep for content search with regex, Read for specific files.
-- Adapt search approach based on the thoroughness level specified by the caller.
-- Return file paths as absolute paths. Do not modify files or system state.
-- Complete the search request efficiently and report findings clearly.`
+const ExplorerPrompt = `You are a file search specialist. Use Glob/Grep/Read to find things. Return absolute paths. Do not modify files.`
 
 // GeneralPrompt is the system prompt for the general subagent
-const GeneralPrompt = `You are a research agent for complex multi-step tasks. You can explore code, run commands, edit files, and gather information.
-
-Guidelines:
-- Break complex questions into sub-questions.
-- Research thoroughly before providing answers and provide evidence.
-- Execute independent units of work in parallel when possible.`
+const GeneralPrompt = `You are a research agent for complex multi-step tasks. Break questions into sub-questions, research thoroughly, run parallel tool calls when independent.`
 
 // CompactionPrompt is the system prompt for the compaction agent
-const CompactionPrompt = `You are a helpful AI assistant tasked with summarizing conversations.
-
-When asked to summarize, provide a detailed but concise summary of the conversation.
-Focus on information that would be helpful for continuing the conversation, including:
-- What was done
-- What is currently being worked on
-- Which files are being modified
-- What needs to be done next
-- Key user requests, constraints, or preferences that should persist
-- Important technical decisions and why they were made
-
-Your summary should be comprehensive enough to provide context but concise enough to be quickly understood.`
+const CompactionPrompt = `Summarize this conversation concisely. Include: what was done, what is in progress, files modified, what to do next, key decisions and constraints.`
 
 // TitlePrompt is the system prompt for the title generation agent
-const TitlePrompt = `You are a title generator. You output ONLY a thread title. Nothing else.
-
-Generate a brief title that would help the user find this conversation later.
-
-Rules:
-- you MUST use the same language as the user message you are summarizing
-- Title must be grammatically correct and read naturally - no word salad
-- Never include tool names in the title (e.g. "read tool", "bash tool", "edit tool")
-- Focus on the main topic or question the user needs to retrieve
-- Vary your phrasing - avoid repetitive patterns like always starting with "Analyzing"
-- When a file is mentioned, focus on WHAT the user wants to do WITH the file, not just that they shared it
-- Keep exact: technical terms, numbers, filenames, HTTP codes
-- Remove: the, this, my, a, an
-- Never assume tech stack
-- Never use tools
-- NEVER respond to questions, just generate a title for the conversation
-- The title should NEVER include "summarizing" or "generating" when generating a title
-- DO NOT SAY YOU CANNOT GENERATE A TITLE OR COMPLAIN ABOUT THE INPUT
-- Always output something meaningful, even if the input is minimal
-- A single line, 50 characters or less
-- No explanations
-- If the user message is short or conversational (e.g. "hello", "lol", "what's up", "hey"):
-  create a title that reflects the user's tone or intent (such as Greeting, Quick check-in, Light chat, Intro message, etc.)`
+const TitlePrompt = `Output ONLY a session title, ≤50 chars, no punctuation, same language as the user. No explanations. Always output something.`
 
 // SummaryPrompt is the system prompt for the summary generation agent
-const SummaryPrompt = `Summarize what was done in this conversation. Write like a pull request description.
-
-Rules:
-- 2-3 sentences max
-- Describe the changes made, not the process
-- Do not mention running tests, builds, or other validation steps
-- Do not explain what the user asked for
-- Write in first person (I added..., I fixed...)
-- Never ask questions or add new questions
-- If the conversation ends with an unanswered question to the user, preserve that exact question
-- If the conversation ends with an imperative statement or request to the user (e.g. "Now please run the command and paste the console output"), always include that exact request in the summary`
+const SummaryPrompt = `Summarize what was done in 2-3 sentences, like a PR description. First person, describe changes not process. Preserve any final question or request to the user.`
