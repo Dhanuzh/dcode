@@ -18,7 +18,6 @@ const PLATFORM_PACKAGE_BY_TARGET = {
   "x86_64-apple-darwin": "@dcode-dev/dcode-darwin-x64",
   "aarch64-apple-darwin": "@dcode-dev/dcode-darwin-arm64",
   "x86_64-pc-windows-msvc": "@dcode-dev/dcode-win32-x64",
-  "aarch64-pc-windows-msvc": "@dcode-dev/dcode-win32-arm64",
 };
 
 const { platform, arch } = process;

@@ -73,8 +73,6 @@ jobs:
             target: aarch64-unknown-linux-musl
           - runs_on: windows-latest
             target: x86_64-pc-windows-msvc
-          - runs_on: windows-latest
-            target: aarch64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v6

@@ -52,13 +52,6 @@ DCODE_PLATFORM_PACKAGES: dict[str, dict[str, str]] = {
         "os": "win32",
         "cpu": "x64",
     },
-    "dcode-win32-arm64": {
-        "npm_name": "@dcode-dev/dcode-win32-arm64",
-        "npm_tag": "win32-arm64",
-        "target_triple": "aarch64-pc-windows-msvc",
-        "os": "win32",
-        "cpu": "arm64",
-    },
 }
 
 PACKAGE_EXPANSIONS: dict[str, list[str]] = {
@@ -72,7 +65,6 @@ PACKAGE_NATIVE_COMPONENTS: dict[str, list[str]] = {
     "dcode-darwin-x64": ["dcode", "rg"],
     "dcode-darwin-arm64": ["dcode", "rg"],
     "dcode-win32-x64": ["dcode", "rg"],
-    "dcode-win32-arm64": ["dcode", "rg"],
 }
 
 PACKAGE_TARGET_FILTERS: dict[str, str] = {
