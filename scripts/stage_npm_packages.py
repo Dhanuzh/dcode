@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_SCRIPT = REPO_ROOT / "dcode-cli" / "scripts" / "build_npm_package.py"
 INSTALL_NATIVE_DEPS = REPO_ROOT / "dcode-cli" / "scripts" / "install_native_deps.py"
 WORKFLOW_NAME = ".github/workflows/dcode-release.yml"
-GITHUB_REPO = "ddhanush1/dcode"
+GITHUB_REPO = "dhanuzh/dcode-rs"
 
 _SPEC = importlib.util.spec_from_file_location("dcode_build_npm_package", BUILD_SCRIPT)
 if _SPEC is None or _SPEC.loader is None:
@@ -85,7 +85,7 @@ def resolve_release_workflow(version: str) -> dict:
             "run",
             "list",
             "--branch",
-            f"dcode-v{version}",
+            f"refs/tags/dcode-v{version}",
             "--json",
             "workflowName,url,headSha",
             "--workflow",
