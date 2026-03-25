@@ -1,0 +1,29 @@
+{
+  "name": "dcode",
+  "version": "1.0.0",
+  "description": "dcode — an AI coding agent that runs locally on your computer",
+  "license": "Apache-2.0",
+  "bin": {
+    "dcode": "bin/dcode.js"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "bin",
+    "vendor"
+  ],
+  "keywords": [
+    "ai",
+    "coding",
+    "agent",
+    "cli",
+    "dcode"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddhanush1/dcode.git",
+    "directory": "dcode-cli"
+  }
+}

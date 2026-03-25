@@ -1,0 +1,25 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "dcode-features"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "dcode_features"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+dcode-login = { workspace = true }
+dcode-otel = { workspace = true }
+dcode-protocol = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

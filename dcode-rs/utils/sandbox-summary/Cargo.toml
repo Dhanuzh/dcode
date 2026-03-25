@@ -1,0 +1,16 @@
+[package]
+name = "dcode-utils-sandbox-summary"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dcode-core = { workspace = true }
+dcode-protocol = { workspace = true }
+
+[dev-dependencies]
+dcode-utils-absolute-path = { workspace = true }
+pretty_assertions = { workspace = true }

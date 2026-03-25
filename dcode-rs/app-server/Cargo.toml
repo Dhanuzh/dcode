@@ -1,0 +1,98 @@
+[package]
+name = "dcode-app-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dcode-app-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "dcode-app-server-test-notify-capture"
+path = "src/bin/notify_capture.rs"
+
+[lib]
+name = "dcode_app_server"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+axum = { workspace = true, default-features = false, features = [
+    "http1",
+    "json",
+    "tokio",
+    "ws",
+] }
+dcode-arg0 = { workspace = true }
+dcode-cloud-requirements = { workspace = true }
+dcode-core = { workspace = true }
+dcode-exec-server = { workspace = true }
+dcode-features = { workspace = true }
+dcode-otel = { workspace = true }
+dcode-shell-command = { workspace = true }
+dcode-utils-cli = { workspace = true }
+dcode-utils-pty = { workspace = true }
+dcode-backend-client = { workspace = true }
+dcode-file-search = { workspace = true }
+dcode-chatgpt = { workspace = true }
+dcode-login = { workspace = true }
+dcode-protocol = { workspace = true }
+dcode-app-server-protocol = { workspace = true }
+dcode-feedback = { workspace = true }
+dcode-rmcp-client = { workspace = true }
+dcode-sandboxing = { workspace = true }
+dcode-state = { workspace = true }
+dcode-utils-absolute-path = { workspace = true }
+dcode-utils-json-to-toml = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
+owo-colors = { workspace = true, features = ["supports-colors"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+time = { workspace = true }
+toml = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }
+tokio-util = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
+uuid = { workspace = true, features = ["serde", "v7"] }
+
+[dev-dependencies]
+app_test_support = { workspace = true }
+base64 = { workspace = true }
+axum = { workspace = true, default-features = false, features = [
+    "http1",
+    "json",
+    "tokio",
+] }
+core_test_support = { workspace = true }
+dcode-utils-cargo-bin = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+pretty_assertions = { workspace = true }
+reqwest = { workspace = true, features = ["rustls-tls"] }
+rmcp = { workspace = true, default-features = false, features = [
+    "elicitation",
+    "server",
+    "transport-streamable-http-server",
+] }
+serial_test = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+wiremock = { workspace = true }
+shlex = { workspace = true }

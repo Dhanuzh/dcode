@@ -1,0 +1,24 @@
+[package]
+name = "dcode-chatgpt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+dcode-connectors = { workspace = true }
+dcode-core = { workspace = true }
+dcode-utils-cli = { workspace = true }
+dcode-utils-cargo-bin = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+dcode-git = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

@@ -1,0 +1,72 @@
+[package]
+name = "dcode-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dcode"
+path = "src/main.rs"
+
+[lib]
+name = "dcode_cli"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+clap_complete = { workspace = true }
+dcode-app-server = { workspace = true }
+dcode-app-server-protocol = { workspace = true }
+dcode-app-server-test-client = { workspace = true }
+dcode-arg0 = { workspace = true }
+dcode-chatgpt = { workspace = true }
+dcode-cloud-tasks = { path = "../cloud-tasks" }
+dcode-utils-cli = { workspace = true }
+dcode-config = { workspace = true }
+dcode-core = { workspace = true }
+dcode-exec = { workspace = true }
+dcode-execpolicy = { workspace = true }
+dcode-features = { workspace = true }
+dcode-login = { workspace = true }
+dcode-mcp-server = { workspace = true }
+dcode-protocol = { workspace = true }
+dcode-responses-api-proxy = { workspace = true }
+dcode-rmcp-client = { workspace = true }
+dcode-sandboxing = { workspace = true }
+dcode-state = { workspace = true }
+dcode-stdio-to-uds = { workspace = true }
+dcode-terminal-detection = { workspace = true }
+dcode-tui = { workspace = true }
+dcode-tui-app-server = { workspace = true }
+libc = { workspace = true }
+owo-colors = { workspace = true }
+regex-lite = { workspace = true }
+serde_json = { workspace = true }
+supports-color = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+dcode_windows_sandbox = { package = "dcode-windows-sandbox", path = "../windows-sandbox-rs" }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+assert_matches = { workspace = true }
+dcode-utils-cargo-bin = { workspace = true }
+predicates = { workspace = true }
+pretty_assertions = { workspace = true }
+sqlx = { workspace = true }

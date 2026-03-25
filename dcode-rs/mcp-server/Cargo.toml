@@ -1,0 +1,48 @@
+[package]
+name = "dcode-mcp-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dcode-mcp-server"
+path = "src/main.rs"
+
+[lib]
+name = "dcode_mcp_server"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+dcode-arg0 = { workspace = true }
+dcode-core = { workspace = true }
+dcode-features = { workspace = true }
+dcode-protocol = { workspace = true }
+dcode-shell-command = { workspace = true }
+dcode-utils-cli = { workspace = true }
+dcode-utils-json-to-toml = { workspace = true }
+rmcp = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+shlex = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }
+tracing = { workspace = true, features = ["log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+core_test_support = { workspace = true }
+mcp_test_support = { workspace = true }
+os_info = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+wiremock = { workspace = true }
