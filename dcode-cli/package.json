@@ -23,7 +23,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ddhanush1/dcode.git",
+    "url": "git+https://github.com/Dhanuzh/dcode-rs.git",
     "directory": "dcode-cli"
   }
 }
