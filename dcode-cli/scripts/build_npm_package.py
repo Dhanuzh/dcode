@@ -20,29 +20,15 @@ DCODE_PLATFORM_PACKAGES: dict[str, dict[str, str]] = {
     "dcode-linux-x64": {
         "npm_name": "dcode-rs-linux-x64",
         "npm_tag": "linux-x64",
-        "target_triple": "x86_64-unknown-linux-musl",
+        "target_triple": "x86_64-unknown-linux-gnu",
         "os": "linux",
         "cpu": "x64",
     },
     "dcode-linux-arm64": {
         "npm_name": "dcode-rs-linux-arm64",
         "npm_tag": "linux-arm64",
-        "target_triple": "aarch64-unknown-linux-musl",
+        "target_triple": "aarch64-unknown-linux-gnu",
         "os": "linux",
-        "cpu": "arm64",
-    },
-    "dcode-darwin-x64": {
-        "npm_name": "dcode-rs-darwin-x64",
-        "npm_tag": "darwin-x64",
-        "target_triple": "x86_64-apple-darwin",
-        "os": "darwin",
-        "cpu": "x64",
-    },
-    "dcode-darwin-arm64": {
-        "npm_name": "dcode-rs-darwin-arm64",
-        "npm_tag": "darwin-arm64",
-        "target_triple": "aarch64-apple-darwin",
-        "os": "darwin",
         "cpu": "arm64",
     },
 }
@@ -55,8 +41,6 @@ PACKAGE_NATIVE_COMPONENTS: dict[str, list[str]] = {
     "dcode": [],
     "dcode-linux-x64": ["dcode", "rg"],
     "dcode-linux-arm64": ["dcode", "rg"],
-    "dcode-darwin-x64": ["dcode", "rg"],
-    "dcode-darwin-arm64": ["dcode", "rg"],
 }
 
 PACKAGE_TARGET_FILTERS: dict[str, str] = {
