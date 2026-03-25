@@ -159,6 +159,8 @@ jobs:
         with:
           path: dist
 
+      - uses: facebook/install-dotslash@v2
+
       - name: Clean up dist
         run: |
           find dist -type f -name 'cargo-timing.html' -delete
