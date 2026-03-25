@@ -94,8 +94,8 @@ try {
     const packageManager = detectPackageManager();
     const updateCommand =
       packageManager === "bun"
-        ? "bun install -g @dcode-dev/dcode@latest"
-        : "npm install -g @dcode-dev/dcode@latest";
+        ? "bun install -g dcode-rs@latest"
+        : "npm install -g dcode-rs@latest";
     throw new Error(
       `Missing optional dependency ${platformPackage}. Reinstall dcode: ${updateCommand}`,
     );
@@ -106,8 +106,8 @@ if (!vendorRoot) {
   const packageManager = detectPackageManager();
   const updateCommand =
     packageManager === "bun"
-      ? "bun install -g @dcode-dev/dcode@latest"
-      : "npm install -g @dcode-dev/dcode@latest";
+      ? "bun install -g dcode-rs@latest"
+      : "npm install -g dcode-rs@latest";
   throw new Error(
     `Missing optional dependency ${platformPackage}. Reinstall dcode: ${updateCommand}`,
   );

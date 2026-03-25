@@ -12,7 +12,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 DCODE_CLI_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = DCODE_CLI_ROOT.parent
-DCODE_NPM_NAME = "@dcode-dev/dcode"
+DCODE_NPM_NAME = "dcode-rs"
 
 # Platform-specific optional dependency packages.
 # `npm_name` is what bin/dcode.js imports at runtime.
