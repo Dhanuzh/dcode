@@ -115,6 +115,7 @@ pub(crate) enum SignInOption {
     DeviceCode,
     ApiKey,
     GithubCopilot,
+    AnthropicOAuth,
     Anthropic,
 }
 
@@ -181,6 +182,9 @@ impl KeyboardHandler for AuthModeWidget {
             }
             KeyCode::Char('5') => {
                 self.select_option_by_index(/*index*/ 4);
+            }
+            KeyCode::Char('6') => {
+                self.select_option_by_index(/*index*/ 5);
             }
             KeyCode::Enter => {
                 let sign_in_state = { (*self.sign_in_state.read().unwrap()).clone() };
@@ -270,6 +274,7 @@ impl AuthModeWidget {
             options.push(SignInOption::ApiKey);
         }
         options.push(SignInOption::GithubCopilot);
+        options.push(SignInOption::AnthropicOAuth);
         options.push(SignInOption::Anthropic);
         options
     }
@@ -284,6 +289,7 @@ impl AuthModeWidget {
             options.push(SignInOption::ApiKey);
         }
         options.push(SignInOption::GithubCopilot);
+        options.push(SignInOption::AnthropicOAuth);
         options.push(SignInOption::Anthropic);
         options
     }
@@ -331,6 +337,9 @@ impl AuthModeWidget {
             }
             SignInOption::GithubCopilot => {
                 self.start_github_copilot_login();
+            }
+            SignInOption::AnthropicOAuth => {
+                self.start_anthropic_oauth();
             }
             SignInOption::Anthropic => {
                 self.start_anthropic_api_key_entry();
@@ -426,6 +435,14 @@ impl AuthModeWidget {
                         option,
                         "Sign in with GitHub Copilot",
                         "Use your GitHub Copilot subscription",
+                    ));
+                }
+                SignInOption::AnthropicOAuth => {
+                    lines.extend(create_mode_item(
+                        idx,
+                        option,
+                        "Sign in with Claude (OAuth)",
+                        "Authorize via claude.ai — same flow as Claude Code CLI",
                     ));
                 }
                 SignInOption::Anthropic => {
@@ -1000,6 +1017,21 @@ impl AuthModeWidget {
     }
 
     fn save_anthropic_api_key(&mut self, api_key: String) {
+        // OAuth tokens (sk-ant-oat01-...) are issued by claude.ai and are NOT
+        // valid for api.anthropic.com inference. Only API keys work.
+        if api_key.starts_with("sk-ant-oat") {
+            self.error = Some(
+                "OAuth tokens cannot be used with the Anthropic API. \
+                Please create an API key at console.anthropic.com and paste it here."
+                    .to_string(),
+            );
+            *self.sign_in_state.write().unwrap() = SignInState::AnthropicApiKey(ApiKeyInputState {
+                value: String::new(),
+                prepopulated_from_env: false,
+            });
+            self.request_frame.schedule_frame();
+            return;
+        }
         match login_with_api_key(
             &self.dcode_home,
             &api_key,
