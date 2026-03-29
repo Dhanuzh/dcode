@@ -86,6 +86,7 @@ use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
 use tokio_tungstenite::tungstenite::Error;
 use tokio_tungstenite::tungstenite::Message;
+use tracing::info;
 use tracing::instrument;
 use tracing::trace;
 use tracing::warn;
@@ -122,8 +123,8 @@ const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
 const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
 const MIN_OUTPUT_TOKENS: i64 = 1_024;
-const MAX_RESPONSE_OUTPUT_TOKENS: i64 = 16_384;
-const MAX_ANTHROPIC_OUTPUT_TOKENS: i64 = 8_192;
+const MAX_RESPONSE_OUTPUT_TOKENS: i64 = 12_288;
+const MAX_ANTHROPIC_OUTPUT_TOKENS: i64 = 5_120;
 #[cfg(test)]
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(crate::model_provider_info::DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
@@ -694,7 +695,7 @@ impl ModelClientSession {
             return None;
         }
 
-        let mut budget = (effective_context / 4).max(MIN_OUTPUT_TOKENS);
+        let mut budget = (effective_context / 5).max(MIN_OUTPUT_TOKENS);
         let max_for_wire = match self.client.state.provider.wire_api {
             WireApi::AnthropicMessages => MAX_ANTHROPIC_OUTPUT_TOKENS,
             WireApi::Responses | WireApi::Chat => MAX_RESPONSE_OUTPUT_TOKENS,
@@ -750,6 +751,28 @@ impl ModelClientSession {
         let text = create_text_param_for_request(verbosity, &prompt.output_schema);
         let prompt_cache_key = Some(self.client.state.conversation_id.to_string());
         let max_output_tokens = self.max_output_tokens_for_model(model_info);
+        // Log token budget breakdown for optimization.
+        {
+            let instructions_bytes = instructions.len();
+            let input_bytes: usize = input.iter().map(|item| {
+                serde_json::to_string(item).map(|s| s.len()).unwrap_or(0)
+            }).sum();
+            let tools_bytes: usize = tools.iter().map(|t| {
+                serde_json::to_string(t).map(|s| s.len()).unwrap_or(0)
+            }).sum();
+            let tools_count = tools.len();
+            info!(
+                instructions_bytes,
+                input_bytes,
+                tools_bytes,
+                tools_count,
+                approx_instructions_tokens = instructions_bytes / 4,
+                approx_input_tokens = input_bytes / 4,
+                approx_tools_tokens = tools_bytes / 4,
+                approx_total_tokens = (instructions_bytes + input_bytes + tools_bytes) / 4,
+                "request token budget breakdown"
+            );
+        }
         let request = ResponsesApiRequest {
             model: model_info.slug.clone(),
             instructions: instructions.clone(),

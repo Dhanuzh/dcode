@@ -44,7 +44,7 @@ mod phase_one {
     pub(super) const DEFAULT_STAGE_ONE_ROLLOUT_TOKEN_LIMIT: usize = 150_000;
     /// Maximum number of tokens from `memory_summary.md` injected into memory
     /// tool developer instructions.
-    pub(super) const MEMORY_TOOL_DEVELOPER_INSTRUCTIONS_SUMMARY_TOKEN_LIMIT: usize = 5_000;
+    pub(super) const MEMORY_TOOL_DEVELOPER_INSTRUCTIONS_SUMMARY_TOKEN_LIMIT: usize = 2_000;
     /// Portion of the model effective input window reserved for the stage-1
     /// rollout input.
     ///

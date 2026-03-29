@@ -172,7 +172,7 @@ pub(crate) fn auth_provider_from_auth(
         Ok(Some(api_key)) => {
             return Ok(CoreAuthProvider {
                 token: Some(api_key),
-                account_id: None,
+                ..Default::default()
             });
         }
         // Env var not set — fall through to stored auth token.
@@ -184,7 +184,7 @@ pub(crate) fn auth_provider_from_auth(
     if let Some(token) = provider.experimental_bearer_token.clone() {
         return Ok(CoreAuthProvider {
             token: Some(token),
-            account_id: None,
+            ..Default::default()
         });
     }
 
@@ -193,12 +193,10 @@ pub(crate) fn auth_provider_from_auth(
         Ok(CoreAuthProvider {
             token: Some(token),
             account_id: auth.get_account_id(),
+            ..Default::default()
         })
     } else {
-        Ok(CoreAuthProvider {
-            token: None,
-            account_id: None,
-        })
+        Ok(CoreAuthProvider::default())
     }
 }
 
@@ -250,3 +248,4 @@ impl ApiAuthProvider for CoreAuthProvider {
         self.account_id.clone()
     }
 }
+

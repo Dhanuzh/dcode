@@ -80,9 +80,15 @@ pub fn build_anthropic_request(
 fn response_item_to_anthropic_message(item: &ResponseItem) -> Option<Value> {
     match item {
         ResponseItem::Message { role, content, .. } => {
+            // Anthropic API only supports "user" and "assistant" roles.
+            // Map "developer" (OpenAI concept) to "user".
+            let mapped_role = match role.as_str() {
+                "developer" | "system" => "user",
+                other => other,
+            };
             let content_value = content_items_to_anthropic(content);
             Some(json!({
-                "role": role,
+                "role": mapped_role,
                 "content": content_value
             }))
         }

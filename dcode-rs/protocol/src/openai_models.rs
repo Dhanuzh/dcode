@@ -236,7 +236,7 @@ impl TruncationPolicyConfig {
 pub struct ClientVersion(pub i32, pub i32, pub i32);
 
 const fn default_effective_context_window_percent() -> i64 {
-    95
+    85
 }
 
 /// Model metadata returned by the Dcode backend `/models` endpoint.
@@ -322,7 +322,7 @@ impl ModelInfo {
             web_search_tool_type: WebSearchToolType::default(),
             truncation_policy: TruncationPolicyConfig {
                 mode: TruncationMode::Tokens,
-                limit: 128_000,
+                limit: 16_000,
             },
             supports_parallel_tool_calls: true,
             supports_image_detail_original: false,
@@ -339,7 +339,7 @@ impl ModelInfo {
     pub fn auto_compact_token_limit(&self) -> Option<i64> {
         let context_limit = self
             .context_window
-            .map(|context_window| (context_window * 9) / 10);
+            .map(|context_window| (context_window * 3) / 4);
         let config_limit = self.auto_compact_token_limit;
         if let Some(context_limit) = context_limit {
             return Some(
